@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#050913">
+  <meta name="color-scheme" content="dark">
+  <title>Emergenz</title>
+  <link rel="stylesheet" href="css/fonts.css">
+  <link rel="stylesheet" href="css/app.css">
+  <script src="vendor/capacitor.js"></script>
+  <script src="vendor/plugins.js"></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <canvas id="view" aria-label="Planet"></canvas>
+
+  <header id="hud" hidden>
+    <button class="hud-menu" id="btn-world" aria-label="Welt"></button>
+    <div class="hud-epoch">
+      <div class="hud-year" id="hud-year">Jahr 0</div>
+      <div class="hud-stats" id="hud-stats"></div>
+    </div>
+    <div class="hud-time">
+      <div class="speed" id="speed" role="group" aria-label="Zeit"></div>
+      <div class="speed-rate" id="speed-rate"></div>
+    </div>
+  </header>
+
+  <div id="toasts" aria-live="polite"></div>
+
+  <div id="context" hidden></div>
+  <nav id="dock" aria-label="Werkzeuge" hidden></nav>
+
+  <section id="sheet" class="sheet" hidden aria-modal="false">
+    <div class="sheet-grip" id="sheet-grip"></div>
+    <div class="sheet-body" id="sheet-body"></div>
+  </section>
+
+  <section id="start" class="start">
+    <div class="start-top" id="start-continue"></div>
+    <div class="start-main">
+      <h1 class="wordmark">Emergenz</h1>
+      <p class="tagline">Ein Planet, der nur aus Regeln entsteht. Du bist sein Gott.</p>
+      <div class="start-form">
+        <label class="field">
+          <span class="field-label">Welt-Nummer</span>
+          <span class="seed-row">
+            <input id="seed" inputmode="numeric" maxlength="9" autocomplete="off" spellcheck="false">
+            <button class="icon-btn" id="dice" aria-label="Neue Zufallszahl"></button>
+          </span>
+        </label>
+        <div class="choice" role="radiogroup" aria-label="Wie beginnt die Welt?">
+          <button class="choice-opt is-on" data-start="ursuppe" role="radio" aria-checked="true">
+            <span class="choice-title">Ursuppe</span>
+            <span class="choice-text">Erste Zellen leben schon in warmen Meeren</span>
+          </button>
+          <button class="choice-opt" data-start="leer" role="radio" aria-checked="false">
+            <span class="choice-title">Leerer Planet</span>
+            <span class="choice-text">Leben muss erst von selbst entstehen</span>
+          </button>
+        </div>
+        <button class="primary" id="create">Welt erschaffen</button>
+        <p class="start-note" id="start-note">Planet entsteht …</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="busy" class="busy" hidden>
+    <div class="busy-box">
+      <div class="busy-title" id="busy-title">Zeitsprung</div>
+      <div class="busy-bar"><div class="busy-fill" id="busy-fill"></div></div>
+      <button class="ghost" id="busy-stop">Anhalten</button>
+    </div>
+  </div>
+</body>
+</html>

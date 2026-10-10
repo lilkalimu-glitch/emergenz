@@ -1,0 +1,18 @@
+node_modules/
+android/
+out/
+karten/
+ergebnis/
+emulator-ergebnis/
+*.log
+__pycache__/
+.DS_Store
+package-lock.json
+
+# Schriften und Capacitor kommen beim Bauen dazu
+www/fonts/*.woff2
+
+# Signierschlüssel nur verschlüsselt
+*.jks
+*.p12
+!signing/*.enc

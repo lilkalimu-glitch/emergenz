@@ -1,0 +1,334 @@
+name: APK bauen
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.claude/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Versionsnummer 0.<Lauf>, versionCode = Lauf (muss immer steigen, sonst lässt Android kein Update zu)
+  APP_MAJOR: '0'
+  CODE_OFFSET: '0'
+
+jobs:
+  sim:
+    name: Simulation testen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Code holen
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Node einrichten
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Tests der Simulation
+        run: |
+          set -o pipefail
+          mkdir -p ergebnis
+          node --test tests/sim.test.mjs 2>&1 | tee ergebnis/sim-test.log
+
+      - name: Karten zeichnen
+        run: |
+          set -o pipefail
+          python3 -m pip install --quiet pillow
+          node tools/render-map.mjs 12345 500 ursuppe karten 2>&1 | tee ergebnis/karten.log
+          python3 -c "
+          from PIL import Image
+          import glob, os
+          for f in glob.glob('karten/*.ppm'):
+              Image.open(f).save('ergebnis/karte-' + os.path.basename(f)[:-4] + '.png')
+          "
+
+      - name: Ergebnis sichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-sim
+          path: ergebnis
+          if-no-files-found: ignore
+
+  web:
+    name: Oberfläche im Browser testen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Code holen
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Node einrichten
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Pakete installieren
+        run: |
+          npm install --no-audit --no-fund --ignore-scripts
+          npm install --no-save --no-audit --no-fund --ignore-scripts @fontsource/fraunces @fontsource/instrument-sans || echo "::warning title=Schriften::Schriften ließen sich nicht laden, Ersatzschriften werden benutzt."
+          npm install --no-save --no-audit --no-fund --ignore-scripts playwright@1
+          npx playwright install --with-deps chromium
+
+      - name: Web-Teil vorbereiten
+        run: node scripts/prepare-web.mjs
+
+      - name: Im Handyformat testen
+        run: |
+          set -o pipefail
+          mkdir -p ergebnis
+          python3 -m http.server 8080 --directory www > /dev/null 2>&1 &
+          sleep 1
+          node tests/ui.mjs ergebnis 2>&1 | tee ergebnis/web-test.log
+
+      - name: Ergebnis sichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-web
+          path: ergebnis
+          if-no-files-found: ignore
+
+  app:
+    name: Android-App bauen
+    needs: sim
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      signed: ${{ steps.key.outputs.signed }}
+    steps:
+      - name: Code holen
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Node einrichten
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Java einrichten
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Pakete installieren
+        run: |
+          set -o pipefail
+          mkdir -p ergebnis
+          # Ohne Install-Skripte der Pakete (Schutz vor manipulierten npm-Paketen), Capacitor braucht keine.
+          npm install --no-audit --no-fund --ignore-scripts 2>&1 | tee ergebnis/npm.log
+          npm install --no-save --no-audit --no-fund --ignore-scripts @fontsource/fraunces @fontsource/instrument-sans 2>&1 | tee -a ergebnis/npm.log || echo "::warning title=Schriften::Schriften fehlen, Ersatzschriften werden benutzt."
+
+      - name: Web-Teil vorbereiten
+        run: node scripts/prepare-web.mjs
+
+      - name: Android-Projekt erzeugen
+        run: |
+          set -o pipefail
+          npx cap add android 2>&1 | tee ergebnis/cap.log
+          npx cap sync android 2>&1 | tee -a ergebnis/cap.log
+
+      - name: Android-Projekt anpassen
+        run: |
+          set -o pipefail
+          python3 scripts/patch-android.py 2>&1 | tee ergebnis/patch.log
+
+      - name: App-Schlüssel entschlüsseln
+        id: key
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::warning title=Secret fehlt::KEYSTORE_PASSWORD fehlt (Settings > Secrets and variables > Actions). Die App wird nur zum Testen gebaut und nicht veröffentlicht."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in signing/emergenz.jks.enc -out "$RUNNER_TEMP/emergenz.jks" -pass env:KEYSTORE_PASSWORD \
+            || { echo "::error title=Falsches Passwort::Das Secret KEYSTORE_PASSWORD passt nicht zum Schlüssel."; exit 1; }
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: APK bauen
+        working-directory: android
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          if [ "${{ steps.key.outputs.signed }}" = "true" ]; then
+            ./gradlew assembleRelease --no-daemon --console=plain \
+              -Pandroid.injected.signing.store.file="$RUNNER_TEMP/emergenz.jks" \
+              -Pandroid.injected.signing.store.password=emergenz-kosmos-2026 \
+              -Pandroid.injected.signing.key.alias=emergenz \
+              -Pandroid.injected.signing.key.password=emergenz-kosmos-2026 2>&1 | tee ../ergebnis/gradle.log
+          else
+            ./gradlew assembleDebug --no-daemon --console=plain 2>&1 | tee ../ergebnis/gradle.log
+          fi
+
+      - name: APK bereitlegen
+        run: |
+          mkdir -p out
+          if [ "${{ steps.key.outputs.signed }}" = "true" ]; then
+            APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)
+            cp "$APK" "out/Emergenz-${APP_MAJOR}.${{ github.run_number }}.apk"
+          else
+            APK=$(find android/app/build/outputs/apk/debug -name '*.apk' | head -n 1)
+            cp "$APK" "out/Emergenz-${APP_MAJOR}.${{ github.run_number }}-test.apk"
+          fi
+          ls -la out
+
+      - name: APK als Artefakt speichern
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: out/*.apk
+
+      - name: Fehler melden
+        if: failure()
+        run: |
+          for f in ergebnis/npm.log ergebnis/cap.log ergebnis/patch.log ergebnis/gradle.log; do
+            if [ -f "$f" ]; then
+              msg=$(grep -v '^\s*$' "$f" | tail -n 45 | cut -c1-220 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+              echo "::error title=$f::$msg"
+            fi
+          done
+
+      - name: Protokolle sichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-app
+          path: ergebnis
+          if-no-files-found: ignore
+
+      - name: Schlüssel entfernen
+        if: always()
+        run: rm -f "$RUNNER_TEMP/emergenz.jks"
+
+  emulator:
+    name: App im Android-Emulator testen
+    needs: app
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Code holen
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: APK holen
+        uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: apk
+
+      - name: KVM freischalten
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Emulator starten und App testen
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash tests/emulator_test.sh apk emulator-ergebnis
+
+      - name: Ergebnis sichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-emulator
+          path: emulator-ergebnis
+          if-no-files-found: ignore
+
+  release:
+    name: APK veröffentlichen
+    needs: [app, web]
+    if: needs.app.outputs.signed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: APK holen
+        uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: out
+
+      - name: Release erstellen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${APP_MAJOR}.${{ github.run_number }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            gh release upload "$TAG" out/*.apk --clobber --repo "${{ github.repository }}"
+          else
+            gh release create "$TAG" out/*.apk \
+              --repo "${{ github.repository }}" \
+              --target "${{ github.sha }}" \
+              --title "Emergenz ${APP_MAJOR}.${{ github.run_number }}" \
+              --notes "APK fürs Handy: auf dem Handy öffnen und installieren. Neue Versionen einfach über die alte installieren, die gespeicherte Welt bleibt." \
+              --latest
+          fi
+
+  ergebnis:
+    name: Ergebnisse speichern
+    needs: [sim, web, app, emulator, release]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Protokolle holen
+        uses: actions/download-artifact@v4
+        with:
+          pattern: log-*
+          path: ergebnis
+
+      - name: Zusammenfassung schreiben
+        run: |
+          mkdir -p ergebnis
+          cat > ergebnis/ZUSAMMENFASSUNG.md <<EOF
+          # Lauf ${{ github.run_number }}
+
+          Commit: ${{ github.sha }}
+
+          | Schritt | Ergebnis |
+          | --- | --- |
+          | Simulation | ${{ needs.sim.result }} |
+          | Oberfläche im Browser | ${{ needs.web.result }} |
+          | Android-App | ${{ needs.app.result }} (signiert: ${{ needs.app.outputs.signed }}) |
+          | Test im Emulator | ${{ needs.emulator.result }} |
+          | Veröffentlichen | ${{ needs.release.result }} |
+          EOF
+          find ergebnis -type f | sort
+
+      - name: In den Zweig ci-ergebnis schreiben
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          cd ergebnis
+          git init -q -b ci-ergebnis
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Ergebnisse von Lauf ${{ github.run_number }}"
+          git push -q -f "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.git" ci-ergebnis

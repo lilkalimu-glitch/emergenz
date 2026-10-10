@@ -1,0 +1,1 @@
+Schriften werden beim Bauen aus @fontsource kopiert (scripts/prepare-web.mjs).

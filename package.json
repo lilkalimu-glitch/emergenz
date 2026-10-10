@@ -1,0 +1,23 @@
+{
+  "name": "emergenz",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Gott-Simulation: eine Welt, die nur aus Regeln entsteht",
+  "scripts": {
+    "test": "node --test tests/sim.test.mjs",
+    "serve": "python3 -m http.server 8080 --directory www",
+    "prepare-web": "node scripts/prepare-web.mjs",
+    "karte": "node tools/render-map.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/app": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/haptics": "^7.0.0",
+    "@capacitor/status-bar": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0"
+  }
+}

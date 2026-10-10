@@ -1,0 +1,9 @@
+{
+  "appId": "com.lilkalimu.emergenz",
+  "appName": "Emergenz",
+  "webDir": "www",
+  "loggingBehavior": "production",
+  "android": {
+    "backgroundColor": "#050913"
+  }
+}
