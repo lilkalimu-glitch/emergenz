@@ -1,0 +1,25 @@
+✔ Adding native android project in android in 34.50ms
+✔ add in 34.88ms
+✔ Copying web assets from www to android/app/src/main/assets/public in 10.35ms
+✔ Creating capacitor.config.json in android/app/src/main/assets in 411.91μs
+✔ copy android in 17.69ms
+✔ Updating Android plugins in 1.10ms
+[info] Found 3 Capacitor plugins for android:
+       @capacitor/app@7.1.2
+       @capacitor/haptics@7.0.5
+       @capacitor/status-bar@7.0.6
+✔ update android in 19.02ms
+✔ Syncing Gradle in 160.34μs
+[success] android platform added!
+Follow the Developer Workflow guide to get building:
+https://capacitorjs.com/docs/basics/workflow
+✔ Copying web assets from www to android/app/src/main/assets/public in 16.59ms
+✔ Creating capacitor.config.json in android/app/src/main/assets in 577.79μs
+✔ copy android in 24.92ms
+✔ Updating Android plugins in 1.06ms
+[info] Found 3 Capacitor plugins for android:
+       @capacitor/app@7.1.2
+       @capacitor/haptics@7.0.5
+       @capacitor/status-bar@7.0.6
+✔ update android in 26.01ms
+[info] Sync finished in 0.068s

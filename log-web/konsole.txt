@@ -1,0 +1,10 @@
+[warning] [.WebGL-0x37dc00889e00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[warning] [.WebGL-0x37dc00889e00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[warning] [.WebGL-0x37dc00889e00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[log] EMERGENZ_BEREIT webgl2
+[warning] [.WebGL-0x37dc00889e00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)
+[log] EMERGENZ: Vorschau 42385
+[log] EMERGENZ_WELT_LAEUFT
+[log] EMERGENZ_BEREIT webgl2
+[log] EMERGENZ: Vorschau 41358
+[log] EMERGENZ_WELT_LAEUFT

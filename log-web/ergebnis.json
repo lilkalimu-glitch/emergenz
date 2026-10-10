@@ -1,0 +1,35 @@
+{
+  "fehler": [],
+  "vorschauMs": 1598,
+  "webgl": true,
+  "jahreProSekundeMax": 24.483333333333334,
+  "bilderProSekunde": 6.6,
+  "ms600Jahre": 26705,
+  "nachVorspulen": {
+    "jahr": 733,
+    "gruppen": 3786,
+    "arten": 254,
+    "temperatur": 16.006510381122865
+  },
+  "ende": {
+    "tick": 10532,
+    "groups": 2831,
+    "species": 211,
+    "T": 15.673820951926578,
+    "view": "globe",
+    "pxPerCell": 5.671151102149246,
+    "lifeMode": 0,
+    "instances": 1056,
+    "sprites": 0,
+    "fps": 8.572244975711968,
+    "quality": 0.55,
+    "gl": true,
+    "chronicle": 0,
+    "params": {
+      "sun": 1,
+      "co2": 280,
+      "dust": 0,
+      "tilt": 23.44
+    }
+  }
+}

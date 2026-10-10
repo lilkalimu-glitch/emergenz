@@ -1,0 +1,53 @@
+Bild ergebnis/01-start.png
+ok    Start
+Bild ergebnis/02-globus-anfang.png
+ok    Welt erschaffen
+Jahre pro Sekunde (höchste Stufe): 24.5 Bilder pro Sekunde: 6.6
+ok    Tempo messen
+Bild ergebnis/03-globus-600-jahre.png
+ok    600 Jahre vorspulen
+Bild ergebnis/04-globus-nah.png
+ok    Globus nah
+Bild ergebnis/05-karte.png
+ok    Karte
+Bild ergebnis/06-karte-temperatur.png
+ok    Ebene temperatur
+Bild ergebnis/07-karte-regen.png
+ok    Ebene regen
+Bild ergebnis/08-karte-leben.png
+ok    Ebene leben
+Bild ergebnis/09-mittel-land.png
+Bild ergebnis/10-nah-land.png
+Bild ergebnis/11-mittel-meer.png
+Bild ergebnis/12-nah-meer.png
+ok    Nahansicht
+Bild ergebnis/13-gruppe-oder-ort.png
+ok    Gruppe antippen
+Bild ergebnis/14-chronik.png
+ok    Chronik
+Bild ergebnis/15-arten.png
+Bild ergebnis/16-art.png
+ok    Arten
+Bild ergebnis/17-art-markiert.png
+ok    Art zeigen
+Bild ergebnis/18-verlauf.png
+ok    Verlauf
+Bild ergebnis/19-klima.png
+ok    Klima
+Bild ergebnis/20-meteor.png
+Bild ergebnis/21-nach-meteor.png
+ok    Meteor
+Bild ergebnis/22-werkzeug-leben.png
+ok    Leben aussetzen
+Bild ergebnis/23-welt-menue.png
+Bild ergebnis/24-zeitsprung.png
+Bild ergebnis/25-nach-zeitsprung.png
+ok    Welt-Menü und Zeitsprung
+ok    Kein seitliches Scrollen
+Bild ergebnis/26-weiterspielen.png
+Bild ergebnis/27-geladen.png
+ok    Speichern und Weiterspielen
+Bild ergebnis/28-lebewesen.png
+ok    Bilder der Lebewesen
+
+ALLE OBERFLÄCHEN-TESTS BESTANDEN {"vorschauMs":1598,"webgl":true,"jahreProSekundeMax":24.483333333333334,"bilderProSekunde":6.6,"ms600Jahre":26705,"nachVorspulen":{"jahr":733,"gruppen":3786,"arten":254,"temperatur":16.006510381122865},"ende":{"tick":10532,"groups":2831,"species":211,"T":15.673820951926578,"view":"globe","pxPerCell":5.671151102149246,"lifeMode":0,"instances":1056,"sprites":0,"fps":8.572244975711968,"quality":0.55,"gl":true,"chronicle":0,"params":{"sun":1,"co2":280,"dust":0,"tilt":23.44}}}

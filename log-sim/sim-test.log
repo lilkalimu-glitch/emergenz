@@ -1,0 +1,94 @@
+TAP version 13
+# Subtest: Vorschau und Start liefern Bilder-Daten in der richtigen Größe
+ok 1 - Vorschau und Start liefern Bilder-Daten in der richtigen Größe
+  ---
+  duration_ms: 517.978688
+  type: 'test'
+  ...
+# Subtest: Bewegung: px/py ist die Position beim letzten Bild
+ok 2 - Bewegung: px/py ist die Position beim letzten Bild
+  ---
+  duration_ms: 454.841496
+  type: 'test'
+  ...
+# Subtest: Eingriffe und Abfragen über den Host
+ok 3 - Eingriffe und Abfragen über den Host
+  ---
+  duration_ms: 883.186125
+  type: 'test'
+  ...
+# Subtest: Gleicher Seed und gleiche Eingriffe ergeben denselben Verlauf
+ok 4 - Gleicher Seed und gleiche Eingriffe ergeben denselben Verlauf
+  ---
+  duration_ms: 2513.059817
+  type: 'test'
+  ...
+# Subtest: Spielstand: speichern und laden über den Host
+ok 5 - Spielstand: speichern und laden über den Host
+  ---
+  duration_ms: 693.05414
+  type: 'test'
+  ...
+# Subtest: Gelände: gleicher Seed gibt dieselbe Welt, etwa 68 % Ozean
+ok 6 - Gelände: gleicher Seed gibt dieselbe Welt, etwa 68 % Ozean
+  ---
+  duration_ms: 425.365969
+  type: 'test'
+  ...
+# Subtest: Klima: erdähnliche Mitteltemperatur, Äquator warm, Pole kalt
+ok 7 - Klima: erdähnliche Mitteltemperatur, Äquator warm, Pole kalt
+  ---
+  duration_ms: 571.606568
+  type: 'test'
+  ...
+# Subtest: Klima: schwächere Sonne kühlt, mehr CO2 wärmt
+ok 8 - Klima: schwächere Sonne kühlt, mehr CO2 wärmt
+  ---
+  duration_ms: 1023.612561
+  type: 'test'
+  ...
+# Subtest: Miami-Modell: Regenwald produktiver als Wüste und Tundra
+ok 9 - Miami-Modell: Regenwald produktiver als Wüste und Tundra
+  ---
+  duration_ms: 0.21191
+  type: 'test'
+  ...
+# Subtest: Ursuppe: Leben breitet sich aus und bildet Arten
+ok 10 - Ursuppe: Leben breitet sich aus und bildet Arten
+  ---
+  duration_ms: 4917.515492
+  type: 'test'
+  ...
+# Subtest: Gleicher Seed und gleiche Eingriffe ergeben denselben Verlauf
+ok 11 - Gleicher Seed und gleiche Eingriffe ergeben denselben Verlauf
+  ---
+  duration_ms: 3049.571483
+  type: 'test'
+  ...
+# Subtest: Meteor: tötet in der Nähe, Staub kühlt das Klima
+ok 12 - Meteor: tötet in der Nähe, Staub kühlt das Klima
+  ---
+  duration_ms: 2927.559737
+  type: 'test'
+  ...
+# Subtest: Speichern und Laden ergibt dieselbe Welt
+ok 13 - Speichern und Laden ergibt dieselbe Welt
+  ---
+  duration_ms: 1889.311311
+  type: 'test'
+  ...
+# Subtest: Leben aussetzen und Pflanzen säen
+ok 14 - Leben aussetzen und Pflanzen säen
+  ---
+  duration_ms: 346.793534
+  type: 'test'
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 15214.819717
