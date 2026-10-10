@@ -100,6 +100,14 @@ wait_log "EMERGENZ_WELT_LAEUFT" 60
 sleep 12
 adb exec-out screencap -p > "$OUT/2-welt.png"
 
+echo "== Liegt die Kopfzeile frei (nicht unter der Statusleiste)?"
+dump_ui
+top=$(tr '>' '\n' < "$OUT/ui.xml" | grep -E '(text|content-desc)="Pause"' | grep -o 'bounds="\[[0-9]*,[0-9]*\]' | head -n 1 | grep -o '[0-9]\+' | tail -n 1)
+echo "  Pause-Knopf beginnt bei y=${top:-unbekannt}"
+if [ -n "$top" ] && [ "$top" -lt 50 ]; then
+  fail "Kopfzeile liegt unter der Statusleiste"
+fi
+
 echo "== Werkzeug Chronik öffnen"
 tap_text "Chronik" || true
 sleep 3

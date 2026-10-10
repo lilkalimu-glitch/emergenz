@@ -159,7 +159,12 @@ def main_activity():
                 return
             write(path, pkg.group(0) + """
 
+import android.graphics.Color;
 import android.os.Bundle;
+import android.view.View;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -169,6 +174,20 @@ public class MainActivity extends BridgeActivity {
         try {
             // Layout nicht durch die System-Schriftgröße sprengen lassen.
             getBridge().getWebView().getSettings().setTextZoom(100);
+        } catch (Exception ignored) {
+        }
+        try {
+            // Neuere Android-Versionen zeichnen Apps bis unter Status- und Navigationsleiste.
+            // Die App bekommt deshalb Abstand in Höhe der Leisten (und der Tastatur), damit nichts verdeckt wird.
+            getWindow().getDecorView().setBackgroundColor(Color.parseColor("#050913"));
+            View content = findViewById(android.R.id.content);
+            ViewCompat.setOnApplyWindowInsetsListener(content, (v, insets) -> {
+                Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+                v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
+                return WindowInsetsCompat.CONSUMED;
+            });
+            ViewCompat.requestApplyInsets(content);
         } catch (Exception ignored) {
         }
     }
