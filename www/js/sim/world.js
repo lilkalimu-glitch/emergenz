@@ -5,7 +5,7 @@
 //  - 1 Jahr: Klima (Energiebilanz, Eis, Regen), Ausbreitung der Pflanzen, Arten, Chronik
 // Die Jahreszeiten werden aus dem Jahresklima abgeleitet, damit schnelles Vorspulen günstig bleibt.
 
-import { W, H, N, LAT, COSLAT, MONTHS, clamp, cellOf, xyToLatLon } from './const.js';
+import { W, H, N, BW, BH, LAT, COSLAT, MONTHS, clamp, cellOf, formatLatLon } from './const.js';
 import { RNG, hashString } from './rng.js';
 import { generatePlanet, coastDistance } from './planet.js';
 import { Climate } from './climate.js';
@@ -15,14 +15,9 @@ import { Species } from './species.js';
 import { Chronicle } from './chronicle.js';
 import { NG, SIZE, DIET, LAND, TOPT, TTOL, SPEED, SENSE, REPRO, HUE, toptGene, describe } from './genome.js';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
-export function formatLatLon(x, y) {
-  const [lat, lon] = xyToLatLon(x, y);
-  const la = `${Math.abs(lat).toFixed(0)}° ${lat >= 0 ? 'N' : 'S'}`;
-  const lo = `${Math.abs(lon).toFixed(0)}° ${lon >= 0 ? 'O' : 'W'}`;
-  return `${la}, ${lo}`;
-}
+export { formatLatLon };
 
 export function biomeName(world, c) {
   const { climate, plants, isOcean, elev } = world;
@@ -66,7 +61,7 @@ export class World {
     this.params = { sun: 1, co2: 280, dust: 0, tilt: 23.44 };
     this.tick = 0;
     this.version = 0; // steigt, wenn sich etwas Sichtbares ändert
-    this.terrainVersion = 0; // steigt bei Kratern
+    this.terrainVersion = 0; // steigt, wenn sich das Gelände ändert (Krater, Platten, Erosion)
     this.craters = [];
     this.milestones = {};
     this.state = { iceAge: false, snowball: false, hothouse: false, lastMass: -1e9, algaeSince: -1 };
@@ -75,10 +70,12 @@ export class World {
 
     const planet = generatePlanet(this.seed);
     this.planet = planet;
-    this.elev = planet.elev;
+    // Gelände in mittlerer Auflösung (512 x 256, Meter) ist das Original, das Simulationsraster wird daraus gemittelt
+    this.base = planet.base;
+    this.elev = new Float32Array(N);
     this.isOcean = new Uint8Array(N);
     this.coast = null;
-    this.updateOcean();
+    this.syncElevation();
 
     this.plants = new Plants(this);
     this.climate = new Climate(this);
@@ -102,6 +99,42 @@ export class World {
 
   get month() {
     return this.tick % 12;
+  }
+
+  // Simulationsraster aus dem feineren Gelände mitteln (2 x 2)
+  syncElevation() {
+    const b = this.base;
+    for (let j = 0; j < H; j++) {
+      for (let i = 0; i < W; i++) {
+        const o = 2 * j * BW + 2 * i;
+        this.elev[j * W + i] = (b[o] + b[o + 1] + b[o + BW] + b[o + BW + 1]) / 4;
+      }
+    }
+    this.updateOcean();
+  }
+
+  // Krater im feinen Gelände (Koordinaten in Simulationszellen)
+  applyCrater(cr) {
+    const b = this.base;
+    const cx = cr.x * 2;
+    const cy = cr.y * 2;
+    const r = cr.r * 2;
+    const y0 = Math.max(0, Math.floor(cy - r * 1.7));
+    const y1 = Math.min(BH - 1, Math.ceil(cy + r * 1.7));
+    for (let y = y0; y <= y1; y++) {
+      const lat = 90 - ((y + 0.5) * 180) / BH;
+      const cosl = Math.max(0.12, Math.cos((lat * Math.PI) / 180));
+      const rx = (r * 1.7) / cosl;
+      for (let xx = Math.floor(cx - rx); xx <= Math.ceil(cx + rx); xx++) {
+        const x = ((xx % BW) + BW) % BW;
+        const dx = (xx + 0.5 - cx) * cosl;
+        const dy = y + 0.5 - cy;
+        const d = Math.hypot(dx, dy);
+        const t = y * BW + x;
+        if (d < r) b[t] -= cr.depth * (1 - (d / r) ** 2);
+        else b[t] += 0.18 * cr.depth * Math.exp(-(((d - r) / (0.35 * r)) ** 2));
+      }
+    }
   }
 
   updateOcean() {
@@ -472,14 +505,18 @@ export class World {
     const rng = this.rng;
     let changed = false;
     const hitOcean = this.isOcean[cellOf(x, y)] === 1;
-    // Krater
-    this.forCells(x, y, r * 1.6, (c, d) => {
-      const before = this.elev[c] < 0;
-      if (d < r) this.elev[c] -= depth * (1 - (d / r) ** 2);
-      else this.elev[c] += 0.18 * depth * Math.exp(-(((d - r) / (0.35 * r)) ** 2));
-      if (before !== this.elev[c] < 0) changed = true;
-    });
-    this.craters.push({ x, y, r, depth });
+    // Krater (im feinen Gelände, dann gemittelt)
+    const wasOcean = this.isOcean.slice();
+    const crater = { x, y, r, depth };
+    this.applyCrater(crater);
+    this.craters.push(crater);
+    this.syncElevation();
+    for (let c = 0; c < N; c++) {
+      if (wasOcean[c] !== this.isOcean[c]) {
+        changed = true;
+        break;
+      }
+    }
     // Tote und verbrannte Erde
     let killed = 0;
     for (let i = 0; i < life.n; i++) {
@@ -501,10 +538,7 @@ export class World {
       this.plants.A[c] *= f;
     });
     this.params.dust = Math.min(0.6, this.params.dust + [0.03, 0.12, 0.3][size - 1]);
-    if (changed) {
-      this.updateOcean();
-      this.climate.updateSeasonShape();
-    }
+    if (changed) this.climate.updateSeasonShape();
     this.plants.updateCapacity();
     this.terrainVersion++;
     this.version++;
@@ -629,7 +663,7 @@ export class World {
       params: { ...this.params },
       rng: this.rng.getState(),
       rngSpare: this.rng.spare,
-      elev: this.elev.slice(),
+      base: this.base.slice(),
       craters: this.craters.slice(),
       milestones: { ...this.milestones },
       state: { ...this.state },
@@ -664,13 +698,14 @@ export class World {
     w.params = { ...w.params, ...d.params };
     w.rng.setState(d.rng);
     w.rng.spare = d.rngSpare ?? null;
-    w.elev.set(d.elev);
     w.craters = d.craters || [];
+    if (d.base) w.base.set(d.base);
+    else for (const cr of w.craters) w.applyCrater(cr); // ältere Spielstände: Krater neu einarbeiten
+    w.syncElevation();
     w.milestones = d.milestones || {};
     w.state = { ...w.state, ...d.state };
     w.history = d.history || [];
     w.historyStep = d.historyStep || 1;
-    w.updateOcean();
     const cl = w.climate;
     cl.zonal.set(d.climate.zonal);
     cl.T.set(d.climate.T);

@@ -59,3 +59,10 @@ export function latLonToXY(lat, lon) {
 export function xyToLatLon(x, y) {
   return [90 - (y / H) * 180, (x / W) * 360 - 180];
 }
+
+export function formatLatLon(x, y) {
+  const [lat, lon] = xyToLatLon(x, y);
+  const la = `${Math.abs(lat).toFixed(0)}° ${lat >= 0 ? 'N' : 'S'}`;
+  const lo = `${Math.abs(lon).toFixed(0)}° ${lon >= 0 ? 'O' : 'W'}`;
+  return `${la}, ${lo}`;
+}

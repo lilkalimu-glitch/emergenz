@@ -25,17 +25,30 @@ Der Nutzer möchte einfache Sprache ohne viel Fachjargon. Vorschläge erst nach 
 ## Aufbau
 - `www/js/sim/`: Simulation. `world.js` (Zeit, Eingriffe, Chronik-Ereignisse, Speichern), `planet.js` (Gelände),
   `climate.js` (Energiebilanz, Eis, Regen), `plants.js` (Miami-Modell, Algen), `life.js` (Gruppen, Erbgut, Fressen,
-  Jagen, Teilung), `species.js` (Artbildung, Namen), `genome.js` (Merkmale), `chronicle.js`.
-- `www/js/render/`: `texture.js` (Kartenbild 1024 x 512 aus Gelände, Klima, Leben), `globe.js` (Kugel pixelweise),
-  `mapview.js` (Karte), `sky.js` (Sterne), `colors.js`.
-- `www/js/app.js`: Start, Schleife, Eingabe, Werkzeuge. `www/js/ui/sheets.js`: Blätter (Chronik, Arten, Ort, Klima, Welt).
+  Jagen, Teilung), `species.js` (Artbildung, Namen), `genome.js` (Merkmale), `chronicle.js`,
+  `host.js` (SimHost: Daten für die Anzeige, Eingriffe und Abfragen, ohne Browser testbar).
+- `www/js/worker.js`: Simulations-Prozess (Web Worker) mit Schleife, Zeitsprung, Autospeichern.
+  `www/js/client.js`: Gegenstück im Hauptprozess (Befehle, neueste Daten). Nachrichten: frame, fields, terrain,
+  species, chronicle, jump, reply.
+- `www/js/gl/`: WebGL2-Darstellung. `glsl.js` (Globus mit Perspektive, Karte, Wolken, Bäume, Wellen; Details aus
+  Rauschen), `renderer.js` (Texturen, Atlas 2048² mit 16 x 16 Tierbildern, Instanzen).
+- `www/js/view/`: `camera.js` (Globus/Karte, Gesten, Flüge), `life-layer.js` (Punkte, Tierbilder, einzelne Tiere in
+  der Nahansicht ab 26 Pixel je Zelle, Antippen), `fx.js` (Effekte), `fallback.js` (Canvas 2D ohne WebGL2).
+- `www/js/art/creatures.js`: zeichnet Tiere aus dem Erbgut (Einzeller, Fische, Wale, Amphibien, Krabbler,
+  Vierbeiner, denkende Wesen).
+- `www/js/render/`: Ersatzbild für Geräte ohne WebGL2 (`texture.js` im Worker, `globe.js`, `mapview.js`), `sky.js`.
+- `www/js/app.js`: Start, Schleife, Eingabe, Werkzeuge. `www/js/ui/sheets.js`: Blätter (Chronik, Arten, Ort, Klima,
+  Welt), `ui/portraits.js`: Tierbilder in Listen.
 - `scripts/prepare-web.mjs` kopiert Capacitor, Plugins und Schriften; `scripts/patch-android.py` passt das
   Android-Projekt an; `scripts/make-icons.py` zeichnet das Icon.
 
 ## Testen
-- `node --test tests/sim.test.mjs` (Simulation), `node tools/render-map.mjs 12345 500` (Karten als PPM).
-- `tests/ui.mjs` läuft auf GitHub mit Playwright im Handyformat 393 x 852.
-- Testzugang in der App: `window.__emergenz` (setSpeed, setView, setLayer, setTool, tapAt, step, openSheet, save).
+- `node --test tests/sim.test.mjs tests/host.test.mjs` (Simulation und SimHost), `node tools/render-map.mjs 12345 500`.
+- `tests/ui.mjs` läuft auf GitHub mit Playwright im Handyformat 393 x 852. Lokal geht es auch: Chromium liegt unter
+  `/opt/pw-browsers`, Playwright global unter `/opt/npm-tools/node_modules` (Verknüpfung nach `node_modules/playwright`),
+  dann `python3 -m http.server 8080 --directory www &` und `EMERGENZ_LOCAL=1 node tests/ui.mjs out/web`.
+- Testzugang in der App: `window.__emergenz` (info, setSpeed, setView, setLayer, setTool, tapAt, step, act, query,
+  zoomTo, globe, findGroup, openSheet, save).
 
 ## Design
 Weltraum-Grund, der Planet ist die Bühne. Farben tragen Bedeutung: Gold für Eingriffe, Grün für Leben, Blau für

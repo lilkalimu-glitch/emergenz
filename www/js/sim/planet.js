@@ -110,8 +110,8 @@ export function generatePlanet(seed) {
 }
 
 // Feines Gelände für die Darstellung: Grundgelände hochskaliert plus Detailrauschen
-export function detailTerrain(planet) {
-  const { base, noises } = planet;
+export function detailTerrain(planet, base = planet.base) {
+  const { noises } = planet;
   const out = new Float32Array(TW * TH);
   const sx = BW / TW;
   const sy = BH / TH;

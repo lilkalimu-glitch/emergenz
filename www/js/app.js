@@ -1,36 +1,33 @@
-// Emergenz: Startpunkt der App. Verbindet Simulation, Darstellung und Bedienung.
+// Emergenz: Startpunkt der App. Verbindet den Simulations-Prozess (Web Worker), die Darstellung (WebGL2)
+// und die Bedienung. Die Welt selbst lebt im Worker; hier kommen nur fertige Daten für das Bild an.
 
-import { World } from './sim/world.js';
-import { W, H, TW, TH, cellOf } from './sim/const.js';
-import { NG, SIZE } from './sim/genome.js';
-import { PlanetTexture, LAYERS } from './render/texture.js';
-import { Globe } from './render/globe.js';
-import { MapView } from './render/mapview.js';
+import { W, H } from './sim/const.js';
+import { SimClient } from './client.js';
+import { Renderer } from './gl/renderer.js';
+import { Camera, TAN_HALF, DIST_GAME, NEAR } from './view/camera.js';
+import { LifeLayer } from './view/life-layer.js';
+import { Effects } from './view/fx.js';
 import { drawSky } from './render/sky.js';
-import { speciesRgb } from './render/colors.js';
 import { icon } from './ui/icons.js';
 import * as F from './ui/format.js';
 import { createSheets } from './ui/sheets.js';
-import * as store from './store.js';
 import * as native from './native.js';
 
 const $ = (id) => document.getElementById(id);
 
-const canvas = $('view');
-const ctx = canvas.getContext('2d', { alpha: false });
-const skyCanvas = document.createElement('canvas');
-const texCanvas = document.createElement('canvas');
-texCanvas.width = TW;
-texCanvas.height = TH;
-const texCtx = texCanvas.getContext('2d');
-const globeCanvas = document.createElement('canvas');
-const globeCtx = globeCanvas.getContext('2d');
+const LAYERS = [
+  { id: 'natur', name: 'Natur' },
+  { id: 'temperatur', name: 'Temperatur' },
+  { id: 'regen', name: 'Regen' },
+  { id: 'leben', name: 'Leben' },
+];
+const LAYER_INDEX = { natur: 0, temperatur: 1, regen: 2, leben: 3 };
 
 const SPEEDS = [
-  { icon: 'pause', label: 'Pause', months: 0 },
-  { icon: 'play', label: '1 Jahr pro Sekunde', months: 12 },
-  { icon: 'play2', label: '6 Jahre pro Sekunde', months: 72 },
-  { icon: 'play3', label: 'So schnell wie möglich', months: Infinity },
+  { icon: 'pause', label: 'Pause' },
+  { icon: 'play', label: '1 Jahr pro Sekunde' },
+  { icon: 'play2', label: '6 Jahre pro Sekunde' },
+  { icon: 'play3', label: 'So schnell wie möglich' },
 ];
 
 const TOOLS = [
@@ -42,8 +39,21 @@ const TOOLS = [
   { id: 'chronik', name: 'Chronik', icon: 'book' },
 ];
 
+// Sonne im Blickraum: Licht von links oben vorne
+const SUN = (() => {
+  const v = [-0.55, 0.42, 0.72];
+  const l = Math.hypot(v[0], v[1], v[2]);
+  return v.map((x) => x / l);
+})();
+
+const smooth = (e0, e1, x) => {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+};
+
 const state = {
-  view: 'globe',
+  phase: 'start',
+  started: false,
   tool: 'ansehen',
   meteorSize: 2,
   weatherMode: 'regen',
@@ -52,69 +62,208 @@ const state = {
   speed: 1,
   highlight: 0,
   selected: null, // { kind: 'zelle', x, y } oder { kind: 'gruppe', uid }
-  acc: 0,
-  w: 0,
-  h: 0,
+  w: 1,
+  h: 1,
   dpr: 1,
-  globeZoom: 1,
-  spin: true,
-  texKey: '',
-  texAt: 0,
-  effects: [],
-  rate: 0,
-  rateMonths: 0,
-  rateAt: 0,
-  lastSave: 0,
+  quality: 1,
+  busy: false,
   savedAt: 0,
-  busy: null,
-  started: false,
+  fade: null,
+  lifeMode: -1,
 };
 
-const app = {
-  world: null,
-  tex: null,
-  globe: new Globe(),
-  map: new MapView(),
-  state,
-};
+let canvas = $('view');
+const fxCanvas = $('fx');
+const client = new SimClient();
+const cam = new Camera();
+const fx = new Effects(fxCanvas);
+const skyCanvas = document.createElement('canvas');
+let renderer = Renderer.create(canvas);
+let fallback = null;
+const life = new LifeLayer((slot, c) => {
+  if (renderer) renderer.setSprite(slot, c);
+  else if (fallback) fallback.setSprite(slot, c);
+});
 
-// ---------------------------------------------------------------- Größe
+const app = { client, state, cam };
+
+// ---------------------------------------------------------------- Größe und Platz
+
+function dprEff() {
+  return state.dpr * state.quality;
+}
 
 function resize() {
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  state.dpr = dpr;
+  state.dpr = Math.min(2, window.devicePixelRatio || 1);
   state.w = window.innerWidth;
   state.h = window.innerHeight;
-  canvas.width = Math.round(state.w * dpr);
-  canvas.height = Math.round(state.h * dpr);
-  drawSky(skyCanvas, state.w, state.h, dpr);
-  app.map.fit(state.w, viewHeight());
-  setupGlobe();
-}
-
-function viewHeight() {
-  return state.h;
-}
-
-function globeGeom() {
-  const top = 96;
-  const bottom = state.started ? 150 : state.h * 0.5;
-  const availH = Math.max(160, state.h - top - bottom);
-  const base = Math.min(state.w * 0.86, availH) / 2;
-  const r = base * state.globeZoom;
-  const cy = state.started ? top + availH / 2 : Math.max(top + base, state.h * 0.3);
-  return { cx: state.w / 2, cy, r, base };
-}
-
-function setupGlobe() {
-  const { base } = globeGeom();
-  const res = Math.round(base * 2 * state.dpr * 0.62 * Math.min(1.6, state.globeZoom));
-  app.globe.setup(res);
-  if (globeCanvas.width !== app.globe.res) {
-    globeCanvas.width = app.globe.res;
-    globeCanvas.height = app.globe.res;
-    state.globeImage = null;
+  const d = dprEff();
+  if (renderer) {
+    renderer.resize(state.w, state.h, d);
+    drawSky(skyCanvas, state.w, state.h, d);
+    renderer.setSky(skyCanvas);
   }
+  if (fallback) fallback.resize(state.w, state.h, d);
+  fx.resize(state.w, state.h, state.dpr);
+  layout(true);
+}
+
+// Wo der Planet auf dem Bildschirm sitzt: im Spiel zwischen Kopfzeile und Werkzeugen, beim Start oben
+function layout(instant = false) {
+  const w = state.w;
+  const h = state.h;
+  if (state.phase === 'game') {
+    const top = 84;
+    const bottom = 150;
+    const availH = Math.max(160, h - top - bottom);
+    const base = Math.min(w * 0.86, availH) / 2;
+    cam.setLayout(w, h, w / 2, top + availH / 2, base, instant);
+  } else {
+    const top = 96;
+    const availH = Math.max(160, h * 0.5 - top);
+    const base = Math.min(w * 0.86, availH) / 2;
+    cam.setLayout(w, h, w / 2, Math.max(top + base, h * 0.3), base, instant);
+  }
+}
+
+// ---------------------------------------------------------------- Grafik
+
+async function useFallback(reason) {
+  console.warn('EMERGENZ: Ersatz-Darstellung ohne WebGL2', reason || '');
+  const { Fallback2D } = await import('./view/fallback.js');
+  const fresh = document.createElement('canvas');
+  fresh.id = 'view';
+  fresh.setAttribute('aria-label', 'Planet');
+  canvas.replaceWith(fresh);
+  canvas = fresh;
+  bindInput(canvas);
+  renderer = null;
+  fallback = new Fallback2D(canvas);
+  cam.ortho = true;
+  life.reset();
+  client.send('init', { fallback: true });
+  resize();
+}
+
+function watchContext(c) {
+  c.addEventListener('webglcontextrestored', () => {
+    try {
+      renderer = Renderer.create(c);
+      if (!renderer) throw new Error('kein Kontext');
+      seen.terrain = -1;
+      seen.fields = -1;
+      life.reset();
+      resize();
+    } catch (e) {
+      useFallback(e.message);
+    }
+  });
+}
+
+const seen = { terrain: 0, fields: 0, tex2d: 0, species: 0 };
+
+function syncData(now) {
+  if (renderer && !renderer.lost) {
+    if (client.terrain && seen.terrain !== client.terrainSeq) {
+      const t = client.terrain;
+      renderer.setTerrain(t.elev, t.width, t.height);
+      seen.terrain = client.terrainSeq;
+    }
+    if (client.fields && seen.fields !== client.fieldsSeq) {
+      renderer.setFields(client.fields);
+      seen.fields = client.fieldsSeq;
+    }
+  } else if (fallback && client.tex2d && seen.tex2d !== client.tex2dSeq) {
+    fallback.setTexture(client.tex2d);
+    seen.tex2d = client.tex2dSeq;
+  }
+  if (seen.species !== client.speciesSeq) {
+    life.setSpecies(client.species);
+    seen.species = client.speciesSeq;
+  }
+  life.pump(now, 4);
+}
+
+// Anteil der Bewegung zwischen dem letzten und dem aktuellen Stand der Simulation
+function motionT(now) {
+  const f = client.frame;
+  if (!f || !f.stepped || state.speed === 0 || state.busy) return 1;
+  return Math.min(1, (now - client.frameAt) / client.frameGap);
+}
+
+function drawPlanet(c, alpha, now) {
+  const d = dprEff();
+  const km = c.kmPerPx();
+  const o = {
+    layer: LAYER_INDEX[state.layer],
+    seaLevel: 0,
+    time: now / 1000,
+    detail: smooth(16, 4, km),
+    kmPerPx: km / d,
+    alpha,
+  };
+  const oy = (state.h - c.cy) * d;
+  if (c.view === 'globe') {
+    o.sun = SUN;
+    o.clouds = state.layer === 'natur' ? 0.85 * smooth(1.9, 2.8, c.dist) : 0;
+    renderer.drawGlobe({ dist: c.dist, tanHalf: TAN_HALF, tilt: c.tilt, lon: c.lon, ox: c.cx * d, oy, half: c.half * d }, o);
+  } else {
+    o.gridW = W;
+    o.gridH = H;
+    renderer.drawMap({ x: c.mx, y: c.my, zoom: c.zoom * d, ox: c.cx * d, oy }, o);
+  }
+}
+
+function render(now) {
+  const f = client.frame;
+  const t = motionT(now);
+  const count = f ? life.build(f, cam, { now, t, dpr: dprEff(), highlight: state.highlight }) : 0;
+  life.frameRef = f;
+  if (renderer) {
+    if (renderer.lost) return;
+    renderer.begin();
+    if (client.terrain) {
+      let a = 1;
+      const fade = state.fade;
+      if (fade) {
+        const ft = (now - fade.t0) / 380;
+        if (ft >= 1) state.fade = null;
+        else {
+          drawPlanet(fade.cam, 1, now);
+          a = smooth(0, 1, ft);
+        }
+      }
+      drawPlanet(cam, a, now);
+      renderer.drawSprites(life.out, count);
+    }
+  } else if (fallback) {
+    fallback.draw(cam, life.out, count);
+  }
+  fx.draw(cam, now, selectionMark(f, t));
+  if (state.lifeMode !== life.mode && state.started) {
+    state.lifeMode = life.mode;
+    if (state.tool === 'ansehen') renderContext();
+  }
+}
+
+// Markierung um die gewählte Gruppe oder Zelle
+function selectionMark(f, t) {
+  const sel = state.selected;
+  if (!sel || !sheets.isOpen()) return null;
+  const ppc = cam.pxPerCell();
+  if (sel.kind === 'zelle') return { x: Math.floor(sel.x) + 0.5, y: Math.floor(sel.y) + 0.5, r: Math.max(10, ppc * 0.75) };
+  if (!f) return null;
+  for (let i = 0; i < f.n; i++) {
+    if (f.uid[i] !== sel.uid) continue;
+    let dx = f.x[i] - f.px[i];
+    if (dx > W / 2) dx -= W;
+    else if (dx < -W / 2) dx += W;
+    const x = (f.px[i] + dx * t + W) % W;
+    const y = f.py[i] + (f.y[i] - f.py[i]) * t;
+    const r = life.mode === 2 ? ppc * 0.62 : life.mode === 1 ? Math.max(12, ppc * 0.9) : 9;
+    return { x, y, r };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- Start
@@ -122,8 +271,10 @@ function setupGlobe() {
 const startEl = $('start');
 const seedInput = $('seed');
 let startMode = 'ursuppe';
-let preview = null; // { seed, world }
+let previewSeed = null;
+let previewWanted = null;
 let previewTimer = null;
+let pendingCreate = false;
 
 function randomSeed() {
   return String(10000 + Math.floor(Math.random() * 89999));
@@ -133,26 +284,19 @@ function schedulePreview() {
   clearTimeout(previewTimer);
   $('start-note').textContent = 'Planet entsteht …';
   $('create').disabled = true;
-  previewTimer = setTimeout(buildPreview, 60);
+  previewTimer = setTimeout(requestPreview, 120);
 }
 
-function buildPreview() {
+function requestPreview() {
   const seed = Number(seedInput.value) || 1;
-  if (preview && preview.seed === seed) return readyPreview();
-  // zweimal Bild zeichnen lassen, dann rechnen (damit der Hinweis sichtbar ist)
-  requestAnimationFrame(() =>
-    setTimeout(() => {
-      const t0 = performance.now();
-      const world = World.create({ seed, start: 'leer' });
-      preview = { seed, world };
-      setWorld(world, false);
-      console.log(`EMERGENZ: Vorschau ${seed} in ${Math.round(performance.now() - t0)} ms`);
-      readyPreview();
-    }, 30),
-  );
+  if (previewWanted === seed && previewSeed === seed) {
+    readyPreview();
+    return;
+  }
+  previewWanted = seed;
+  client.send('preview', { seed });
 }
 
-let pendingCreate = false;
 function readyPreview() {
   $('start-note').textContent = '';
   $('create').disabled = false;
@@ -162,7 +306,13 @@ function readyPreview() {
   }
 }
 
-function initStart(saved) {
+client.on('preview-ready', (m) => {
+  console.log(`EMERGENZ: Vorschau ${m.seed}`);
+  previewSeed = m.seed;
+  if (m.seed === previewWanted && state.phase === 'start') readyPreview();
+});
+
+function initStart() {
   seedInput.value = randomSeed();
   $('dice').innerHTML = icon('dice');
   $('dice').addEventListener('click', () => {
@@ -183,69 +333,77 @@ function initStart(saved) {
     });
   }
   $('create').addEventListener('click', createWorld);
-  if (saved) {
-    const box = $('start-continue');
-    box.innerHTML = `<button class="continue" id="continue">${icon('planet')}<span><b>Weiterspielen</b><span>${F.esc(saved.name)}, ${F.year(saved.tick)}</span></span></button>`;
-    $('continue').addEventListener('click', () => continueWorld(saved));
-  }
   schedulePreview();
 }
 
+function showContinue(saved) {
+  const box = $('start-continue');
+  box.innerHTML = `<button class="continue" id="continue">${icon('planet')}<span><b>Weiterspielen</b><span>${F.esc(saved.name)}, ${F.year(saved.tick)}</span></span></button>`;
+  $('continue').addEventListener('click', continueWorld);
+}
+
 function createWorld() {
-  if (!preview || preview.seed !== (Number(seedInput.value) || 1)) {
+  const seed = Number(seedInput.value) || 1;
+  if (previewSeed !== seed) {
     pendingCreate = true;
-    buildPreview();
+    requestPreview();
     return;
   }
-  const world = preview.world;
-  preview = null;
-  world.start = startMode;
-  if (startMode === 'ursuppe') world.seedPrimordial();
-  else world.chronicle.add('welt', 'Noch ist der Planet leer. Ob hier Leben entsteht, entscheiden Zeit und Zufall.', null, true);
-  enterGame(world);
-  saveNow();
+  previewSeed = null;
+  previewWanted = null;
+  $('create').disabled = true;
+  client.send('start', { mode: startMode });
 }
 
-function continueWorld(saved) {
+async function continueWorld() {
   $('start-note').textContent = 'Welt wird geladen …';
-  setTimeout(() => {
-    try {
-      const world = World.restore(saved);
-      enterGame(world);
-    } catch (e) {
-      console.error(e);
-      $('start-note').textContent = 'Der Spielstand ließ sich nicht laden. Erschaffe eine neue Welt.';
-    }
-  }, 30);
+  previewSeed = null;
+  previewWanted = null;
+  const ok = await client.request('load');
+  if (!ok) $('start-note').textContent = 'Der Spielstand ließ sich nicht laden. Erschaffe eine neue Welt.';
 }
 
-function setWorld(world, running) {
-  app.world = world;
-  app.tex = new PlanetTexture(world);
-  app.tex.update(state.layer, world.month);
-  texCtx.putImageData(new ImageData(app.tex.data, TW, TH), 0, 0);
-  state.texKey = '';
-  state.started = running;
-  setupGlobe();
-}
+client.on('started', () => enterGame());
 
-function enterGame(world) {
-  setWorld(world, true);
+function enterGame() {
+  state.started = true;
+  state.phase = 'game';
   startEl.hidden = true;
   $('hud').hidden = false;
   $('dock').hidden = false;
   $('context').hidden = false;
+  $('start-note').textContent = '';
   state.speed = 1;
-  state.view = 'globe';
-  state.globeZoom = 1;
   state.tool = 'ansehen';
   state.highlight = 0;
-  setupGlobe();
+  state.selected = null;
+  state.lifeMode = -1;
+  if (cam.view !== 'globe') cam.toGlobe();
+  cam.dist = DIST_GAME;
+  layout();
   renderSpeed();
   renderDock();
   renderContext();
-  updateHud(true);
+  updateHud(performance.now(), true);
   console.log('EMERGENZ_WELT_LAEUFT');
+}
+
+function backToStart() {
+  state.started = false;
+  state.phase = 'start';
+  state.speed = 0;
+  state.highlight = 0;
+  client.send('speed', { value: 0 });
+  $('hud').hidden = true;
+  $('dock').hidden = true;
+  $('context').hidden = true;
+  startEl.hidden = false;
+  $('start-continue').innerHTML = '';
+  seedInput.value = randomSeed();
+  if (cam.view !== 'globe') switchView('globe');
+  cam.dist = DIST_GAME;
+  layout();
+  schedulePreview();
 }
 
 // ---------------------------------------------------------------- Kopfzeile
@@ -264,27 +422,30 @@ $('speed').addEventListener('click', (e) => {
 
 function setSpeed(i) {
   state.speed = i;
-  state.acc = 0;
+  client.send('speed', { value: i });
   renderSpeed();
 }
 
 let hudAt = 0;
-function updateHud(force = false) {
-  const now = performance.now();
+let hudStats = '';
+function updateHud(now, force = false) {
   if (!force && now - hudAt < 200) return;
   hudAt = now;
-  const w = app.world;
-  if (!w) return;
-  $('hud-year').textContent = F.year(w.tick);
-  const s = w.species.alive().length;
-  $('hud-stats').innerHTML = `<span class="t">${icon('thermo')}${F.temp(w.climate.globalT)}</span><span class="s">${icon('leaf')}${F.num(s)} ${s === 1 ? 'Art' : 'Arten'}</span>`;
-  let rate = '';
-  if (state.speed > 0 && !state.busy) {
-    const y = state.rate;
-    rate = y >= 1.5 ? `${F.num(Math.round(y))} Jahre/s` : `${F.num(y, 1)} Jahre/s`;
+  const f = client.frame;
+  if (!f) return;
+  const year = F.year(f.tick);
+  if ($('hud-year').textContent !== year) $('hud-year').textContent = year;
+  const s = f.stats.species;
+  const html = `<span class="t">${icon('thermo')}${F.temp(f.stats.T)}</span><span class="s">${icon('leaf')}${F.num(s)} ${s === 1 ? 'Art' : 'Arten'}</span>`;
+  if (html !== hudStats) {
+    $('hud-stats').innerHTML = html;
+    hudStats = html;
   }
-  $('speed-rate').textContent = rate;
+  let rate = '';
+  if (state.speed > 0 && !state.busy && f.rate) rate = f.rate >= 1.5 ? `${F.num(Math.round(f.rate))} Jahre/s` : `${F.num(f.rate, 1)} Jahre/s`;
+  if ($('speed-rate').textContent !== rate) $('speed-rate').textContent = rate;
 }
+
 $('btn-world').innerHTML = icon('planet');
 $('btn-world').addEventListener('click', () => sheets.open('welt'));
 
@@ -324,11 +485,15 @@ function renderContext() {
   const t = state.tool;
   if (t === 'ansehen') {
     row =
-      chip('data-view', state.view === 'globe' ? 'map' : 'globe', state.view === 'globe' ? 'Karte' : 'Globus', false, state.view === 'globe' ? 'map' : 'globe') +
+      (state.highlight ? chip('data-unmark', '1', 'Markierung aufheben', true, 'close') : '') +
+      chip('data-view', cam.view === 'globe' ? 'map' : 'globe', cam.view === 'globe' ? 'Karte' : 'Globus', false, cam.view === 'globe' ? 'map' : 'globe') +
       '<span class="chip-sep"></span>' +
       LAYERS.map((l) => chip('data-layer', l.id, l.name, state.layer === l.id)).join('');
-    hint = state.highlight ? 'Markierte Art leuchtet. Tippe auf den Planeten, um mehr zu sehen.' : 'Tippe auf den Planeten, um einen Ort oder eine Gruppe anzusehen.';
-    if (state.highlight) row += chip('data-unmark', '1', 'Markierung aufheben', false, 'close');
+    if (state.highlight) {
+      hint = 'Die markierte Art leuchtet, alle anderen treten zurück.';
+    } else if (life.mode === 2) hint = 'Nahansicht: Tippe auf ein Tier, um seine Gruppe kennenzulernen.';
+    else if (life.mode === 1) hint = 'Tippe auf ein Tier. Weiter heranzoomen zeigt einzelne Tiere.';
+    else hint = 'Tippe auf einen Ort. Zieh zwei Finger auseinander, um die Tiere aus der Nähe zu sehen.';
   } else if (t === 'meteor') {
     row = [
       [1, 'Klein'],
@@ -345,41 +510,33 @@ function renderContext() {
     row = chip('data-life', 'zellen', 'Zellen aussetzen', state.lifeKind === 'zellen', 'dots') + chip('data-life', 'pflanzen', 'Grün säen', state.lifeKind === 'pflanzen', 'sprout');
     hint = state.lifeKind === 'zellen' ? 'Einfache Zellen, angepasst an den Ort. Was daraus wird, entscheidet die Evolution.' : 'Algen im Meer oder Pflanzen an Land, wo das Klima es zulässt.';
   }
-  el.innerHTML = `<div class="ctx-row">${row}</div><p class="ctx-hint">${hint}</p>`;
+  const html = `<div class="ctx-row">${row}</div><p class="ctx-hint">${hint}</p>`;
+  if (el.innerHTML !== html) el.innerHTML = html;
 }
 
 $('context').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
-  if (b.dataset.view) setView(b.dataset.view);
-  else if (b.dataset.layer) {
-    state.layer = b.dataset.layer;
-    state.texKey = '';
-  } else if (b.dataset.meteor) state.meteorSize = Number(b.dataset.meteor);
+  if (b.dataset.view) switchView(b.dataset.view);
+  else if (b.dataset.layer) setLayer(b.dataset.layer);
+  else if (b.dataset.meteor) state.meteorSize = Number(b.dataset.meteor);
   else if (b.dataset.weather) state.weatherMode = b.dataset.weather;
   else if (b.dataset.life) state.lifeKind = b.dataset.life;
   else if (b.dataset.unmark) app.highlight(0);
   renderContext();
 });
 
-function setView(v, focus) {
-  const w = state.w;
-  const h = state.h;
-  if (v === 'map') {
-    const g = globeGeom();
-    const center = focus || app.globe.unproject(0, 0) || [W / 2, H / 2];
-    app.map.x = center[0];
-    app.map.y = center[1];
-    app.map.zoom = Math.max(app.map.minZoom, Math.min(app.map.maxZoom, focus ? g.r * ((Math.PI * 2) / W) : app.map.minZoom * 1.15));
-    app.map.fit(w, h);
-  } else {
-    const c = focus || [app.map.x, app.map.y];
-    app.globe.lookAt(c[0], c[1]);
-    app.globe.tilt *= 0.6;
-    state.globeZoom = 1;
-    setupGlobe();
-  }
-  state.view = v;
+function setLayer(l) {
+  state.layer = l;
+  client.send('layer', { layer: l });
+  renderContext();
+}
+
+function switchView(v, focus) {
+  if (cam.view === v) return;
+  state.fade = renderer ? { cam: cam.clone(), t0: performance.now() } : null;
+  if (v === 'map') cam.toMap(focus || undefined);
+  else cam.toGlobe(focus || undefined);
   renderContext();
 }
 
@@ -388,185 +545,119 @@ function setView(v, focus) {
 const pointers = new Map();
 let gesture = null;
 
-canvas.addEventListener('pointerdown', (e) => {
-  canvas.setPointerCapture(e.pointerId);
+function onDown(e) {
+  e.currentTarget.setPointerCapture(e.pointerId);
+  const now = performance.now();
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  cam.touch(now);
+  cam.stop();
   if (pointers.size === 1) {
-    gesture = { kind: 'drag', x0: e.clientX, y0: e.clientY, t0: performance.now(), moved: 0, lx: e.clientX, ly: e.clientY };
-    state.spin = false;
+    gesture = { kind: 'drag', t0: now, lt: now, lx: e.clientX, ly: e.clientY, moved: 0, vx: 0, vy: 0 };
   } else if (pointers.size === 2) {
     const [a, b] = [...pointers.values()];
-    gesture = { kind: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, zoom0: state.view === 'map' ? app.map.zoom : state.globeZoom, moved: 99 };
+    gesture = { kind: 'pinch', d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
   }
-});
+}
 
-canvas.addEventListener('pointermove', (e) => {
+function onMove(e) {
   if (!pointers.has(e.pointerId)) return;
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (!gesture) return;
+  const now = performance.now();
+  cam.touch(now);
   if (gesture.kind === 'drag' && pointers.size === 1) {
     const dx = e.clientX - gesture.lx;
     const dy = e.clientY - gesture.ly;
+    const dtm = Math.max(4, now - gesture.lt);
+    gesture.vx = gesture.vx * 0.6 + ((dx / dtm) * 1000) * 0.4;
+    gesture.vy = gesture.vy * 0.6 + ((dy / dtm) * 1000) * 0.4;
     gesture.lx = e.clientX;
     gesture.ly = e.clientY;
+    gesture.lt = now;
     gesture.moved += Math.abs(dx) + Math.abs(dy);
-    if (state.view === 'globe') {
-      const { r } = globeGeom();
-      app.globe.lon -= dx / r;
-      app.globe.tilt = Math.max(-1.25, Math.min(1.25, app.globe.tilt + dy / r));
-    } else {
-      app.map.x -= dx / app.map.zoom;
-      app.map.y -= dy / app.map.zoom;
-      app.map.clamp(state.h);
-    }
+    cam.dragBy(dx, dy);
   } else if (gesture.kind === 'pinch' && pointers.size === 2) {
     const [a, b] = [...pointers.values()];
     const d = Math.hypot(a.x - b.x, a.y - b.y);
-    const f = d / Math.max(10, gesture.d0);
     const mx = (a.x + b.x) / 2;
     const my = (a.y + b.y) / 2;
-    if (state.view === 'map') {
-      const before = app.map.toWorld(mx, my, state.w, state.h);
-      app.map.zoom = Math.max(app.map.minZoom * 0.82, Math.min(app.map.maxZoom, gesture.zoom0 * f));
-      if (app.map.zoom < app.map.minZoom * 0.85) {
-        gesture = null;
-        setView('globe', [app.map.x, app.map.y]);
-        return;
-      }
-      app.map.zoom = Math.max(app.map.minZoom, app.map.zoom);
-      const after = app.map.toWorld(mx, my, state.w, state.h);
-      if (before && after) {
-        app.map.x += before[0] - after[0];
-        app.map.y += before[1] - after[1];
-      }
-      app.map.x -= (mx - gesture.mx) / app.map.zoom;
-      app.map.y -= (my - gesture.my) / app.map.zoom;
-      gesture.mx = mx;
-      gesture.my = my;
-      app.map.clamp(state.h);
-    } else {
-      state.globeZoom = Math.max(0.7, Math.min(2.6, gesture.zoom0 * f));
-      if (state.globeZoom > 2.45) {
-        const g = globeGeom();
-        const p = app.globe.unproject((mx - g.cx) / g.r, -(my - g.cy) / g.r) || app.globe.unproject(0, 0);
-        gesture = null;
-        setView('map', p);
-        return;
-      }
-    }
+    const f = d / Math.max(10, gesture.d);
+    gesture.d = d;
+    cam.dragBy(mx - gesture.mx, my - gesture.my);
+    gesture.mx = mx;
+    gesture.my = my;
+    if (state.started) zoomAt(f, mx, my);
   }
-});
+}
 
-function endPointer(e) {
+function zoomAt(f, sx, sy) {
+  const sw = cam.zoomAt(f, sx, sy);
+  if (!sw) return;
+  const focus = cam.unproject(sx, sy);
+  switchView(sw, focus);
+  // Punkt unter den Fingern bleibt dort
+  if (sw === 'map' && focus) cam.dragBy(sx - cam.cx, sy - cam.cy);
+}
+
+function onUp(e) {
   if (!pointers.has(e.pointerId)) return;
   pointers.delete(e.pointerId);
+  const now = performance.now();
   if (gesture && gesture.kind === 'drag' && pointers.size === 0) {
-    const dt = performance.now() - gesture.t0;
-    if (gesture.moved < 10 && dt < 500) tap(e.clientX, e.clientY);
+    if (gesture.moved < 10 && now - gesture.t0 < 500) tap(e.clientX, e.clientY);
+    else if (now - gesture.lt < 90 && Math.hypot(gesture.vx, gesture.vy) > 90) cam.fling(gesture.vx, gesture.vy);
   }
-  if (gesture && gesture.kind === 'pinch' && state.view === 'globe') setupGlobe();
   if (pointers.size === 0) gesture = null;
   else if (pointers.size === 1) {
     const p = [...pointers.values()][0];
-    gesture = { kind: 'drag', x0: p.x, y0: p.y, t0: 0, moved: 99, lx: p.x, ly: p.y };
+    gesture = { kind: 'drag', t0: 0, lt: now, lx: p.x, ly: p.y, moved: 99, vx: 0, vy: 0 };
   }
 }
-canvas.addEventListener('pointerup', endPointer);
-canvas.addEventListener('pointercancel', endPointer);
 
-canvas.addEventListener(
-  'wheel',
-  (e) => {
-    e.preventDefault();
-    const f = Math.exp(-e.deltaY * 0.0015);
-    if (state.view === 'map') {
-      const before = app.map.toWorld(e.clientX, e.clientY, state.w, state.h);
-      app.map.zoom *= f;
-      if (app.map.zoom < app.map.minZoom * 0.85) {
-        setView('globe', [app.map.x, app.map.y]);
-        return;
-      }
-      app.map.zoom = Math.max(app.map.minZoom, Math.min(app.map.maxZoom, app.map.zoom));
-      const after = app.map.toWorld(e.clientX, e.clientY, state.w, state.h);
-      if (before && after) {
-        app.map.x += before[0] - after[0];
-        app.map.y += before[1] - after[1];
-      }
-      app.map.clamp(state.h);
-    } else {
-      state.globeZoom = Math.max(0.7, Math.min(2.6, state.globeZoom * f));
-      if (state.globeZoom > 2.45) {
-        const g = globeGeom();
-        setView('map', app.globe.unproject((e.clientX - g.cx) / g.r, -(e.clientY - g.cy) / g.r) || undefined);
-      } else setupGlobe();
-    }
-  },
-  { passive: false },
-);
-
-// Bildschirm -> Weltkoordinaten
-function screenToWorld(sx, sy) {
-  if (state.view === 'map') return app.map.toWorld(sx, sy, state.w, state.h);
-  const g = globeGeom();
-  return app.globe.unproject((sx - g.cx) / g.r, -(sy - g.cy) / g.r);
+function onWheel(e) {
+  e.preventDefault();
+  if (!state.started) return;
+  cam.touch(performance.now());
+  zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
 }
 
-function worldToScreen(x, y) {
-  if (state.view === 'map') return app.map.toScreen(x, y, state.w, state.h);
-  const g = globeGeom();
-  const p = app.globe.project(x, y);
-  if (!p) return null;
-  return [g.cx + p[0] * g.r, g.cy - p[1] * g.r];
+function bindInput(el) {
+  el.addEventListener('pointerdown', onDown);
+  el.addEventListener('pointermove', onMove);
+  el.addEventListener('pointerup', onUp);
+  el.addEventListener('pointercancel', onUp);
+  el.addEventListener('wheel', onWheel, { passive: false });
 }
 
-function nearestGroup(sx, sy, maxPx) {
-  const life = app.world.life;
-  let best = -1;
-  let bd = maxPx * maxPx;
-  for (let i = 0; i < life.n; i++) {
-    const p = worldToScreen(life.x[i], life.y[i]);
-    if (!p) continue;
-    const d = (p[0] - sx) ** 2 + (p[1] - sy) ** 2;
-    if (d < bd) {
-      bd = d;
-      best = i;
-    }
-  }
-  return best;
-}
-
-function tap(sx, sy) {
-  const w = app.world;
-  if (!w || !state.started) return;
-  const p = screenToWorld(sx, sy);
+async function tap(sx, sy) {
+  if (!state.started) return;
+  const p = cam.unproject(sx, sy);
   if (!p) return;
   const [x, y] = p;
+  const now = performance.now();
   const t = state.tool;
   if (t === 'ansehen') {
-    const zoomedIn = state.view === 'map' ? app.map.zoom > 4 : globeGeom().r > 150;
-    const gi = zoomedIn ? nearestGroup(sx, sy, 14) : -1;
-    if (gi >= 0) {
-      state.selected = { kind: 'gruppe', uid: w.life.uid[gi] };
-      sheets.open('gruppe', w.life.uid[gi]);
+    const gi = life.mode > 0 ? life.pick(sx, sy, dprEff(), life.mode === 2 ? 12 : 14) : -1;
+    const f = life.frameRef;
+    if (gi >= 0 && f && gi < f.n) {
+      const uid = f.uid[gi];
+      state.selected = { kind: 'gruppe', uid };
+      sheets.open('gruppe', uid);
     } else {
       state.selected = { kind: 'zelle', x, y };
       sheets.open('zelle', [x, y]);
     }
   } else if (t === 'meteor') {
-    w.meteor(x, y, state.meteorSize);
-    state.effects.push({ kind: 'impact', x, y, t0: performance.now(), size: state.meteorSize });
+    fx.add({ kind: 'impact', x, y, t0: now, size: state.meteorSize });
     native.buzz(state.meteorSize === 3 ? 'HEAVY' : 'MEDIUM');
-    state.texKey = '';
+    await client.act('meteor', { x, y, size: state.meteorSize });
   } else if (t === 'wetter') {
-    w.weather(x, y, state.weatherMode);
-    state.effects.push({ kind: 'ring', x, y, t0: performance.now(), color: state.weatherMode === 'regen' ? '140,200,255' : '245,198,106' });
-    state.texKey = '';
+    fx.add({ kind: 'ring', x, y, t0: now, color: state.weatherMode === 'regen' ? '140,200,255' : '245,198,106' });
+    await client.act('weather', { x, y, mode: state.weatherMode });
   } else if (t === 'leben') {
-    const ok = w.sow(x, y, state.lifeKind);
-    if (ok) {
-      state.effects.push({ kind: 'ring', x, y, t0: performance.now(), color: '120,215,154' });
-      state.texKey = '';
-    } else toast({ kind: 'welt', text: 'Hier kann nichts wachsen. Versuche es an einem wärmeren oder feuchteren Ort.', t: w.tick });
+    const ok = await client.act('sow', { x, y, kind: state.lifeKind });
+    if (ok) fx.add({ kind: 'ring', x, y, t0: performance.now(), color: '120,215,154' });
+    else toast({ kind: 'welt', text: 'Hier kann nichts wachsen. Versuche es an einem wärmeren oder feuchteren Ort.', t: client.frame ? client.frame.tick : 0 });
   }
 }
 
@@ -580,28 +671,24 @@ function toast(e) {
   toastQueue.push(e);
 }
 
-function pumpToasts() {
-  const w = app.world;
-  if (w && state.started) {
-    for (const e of w.chronicle.takeFresh()) {
-      if (!(e.important || e.kind === 'gott' || e.kind === 'klima')) continue;
-      toast(e);
-    }
-  }
+client.on('fresh', (entries) => {
+  if (!state.started || state.busy) return;
+  for (const e of entries) if (e.important || e.kind === 'gott' || e.kind === 'klima') toast(e);
+});
+
+function pumpToasts(now) {
+  const tick = client.frame ? client.frame.tick : 0;
   // Alte Meldungen verwerfen: Was vor Jahrzehnten geschah, steht in der Chronik
-  while (toastQueue.length && w && w.tick - toastQueue[0].t > 12 * 12 && toastQueue[0].kind !== 'gott') toastQueue.shift();
+  while (toastQueue.length && tick - toastQueue[0].t > 12 * 12 && toastQueue[0].kind !== 'gott') toastQueue.shift();
   while (toastQueue.length > 3) toastQueue.shift();
   if (!toastQueue.length || toastEl.children.length >= 1) return;
-  const now = performance.now();
   if (now - toastShown < 500) return;
   toastShown = now;
   const e = toastQueue.shift();
   const div = document.createElement('div');
   div.className = `toast k-${e.kind}`;
   div.innerHTML = `<span class="toast-mark"></span><div><span class="toast-year">${F.year(e.t)}</span>${F.rich(e.text)}</div>`;
-  if (e.x !== undefined) {
-    div.addEventListener('click', () => app.flyTo(e.x, e.y));
-  }
+  if (e.x !== undefined) div.addEventListener('click', () => app.flyTo(e.x, e.y));
   toastEl.appendChild(div);
   setTimeout(() => {
     div.classList.add('is-out');
@@ -609,222 +696,51 @@ function pumpToasts() {
   }, 3800);
 }
 
-// ---------------------------------------------------------------- Simulation
-
-function simulate(dt) {
-  const w = app.world;
-  if (!w || !state.started || state.busy) return;
-  const sp = SPEEDS[state.speed];
-  if (!sp.months) return;
-  const t0 = performance.now();
-  const budget = state.speed === 3 ? 15 : 11;
-  let done = 0;
-  if (sp.months === Infinity) {
-    while (performance.now() - t0 < budget) {
-      w.stepMonth();
-      done++;
-    }
-  } else {
-    state.acc = Math.min(state.acc + dt * sp.months, 8);
-    while (state.acc >= 1 && performance.now() - t0 < budget) {
-      w.stepMonth();
-      state.acc -= 1;
-      done++;
-    }
-  }
-  state.rateMonths += done;
-  const now = performance.now();
-  if (now - state.rateAt > 1000) {
-    const yrs = state.rateMonths / 12 / ((now - state.rateAt) / 1000);
-    state.rate = state.rate ? state.rate * 0.5 + yrs * 0.5 : yrs;
-    state.rateMonths = 0;
-    state.rateAt = now;
-  }
-}
-
-function refreshTexture(now, force = false) {
-  const w = app.world;
-  if (!w) return;
-  const key = `${w.version}|${w.month}|${state.layer}|${w.terrainVersion}|${state.layer === 'leben' ? w.tick : ''}`;
-  if (key === state.texKey) return;
-  const minGap = state.speed >= 2 ? 300 : 160;
-  if (!force && state.texKey && now - state.texAt < minGap) return;
-  app.tex.update(state.layer, w.month);
-  texCtx.putImageData(new ImageData(app.tex.data, TW, TH), 0, 0);
-  state.texKey = key;
-  state.texAt = now;
-}
-
-// ---------------------------------------------------------------- Zeichnen
-
-function draw(now) {
-  const { dpr, w, h } = state;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(skyCanvas, 0, 0);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  if (!app.world) return;
-  if (state.view === 'globe') drawGlobe(now);
-  else drawMap();
-  drawEffects(now);
-  drawSelection(now);
-}
-
-function drawGlobe(now) {
-  const g = globeGeom();
-  const globe = app.globe;
-  // Atmosphärenschein
-  const glow = ctx.createRadialGradient(g.cx, g.cy, g.r * 0.92, g.cx, g.cy, g.r * 1.22);
-  glow.addColorStop(0, 'rgba(110,170,255,0.38)');
-  glow.addColorStop(0.35, 'rgba(90,150,255,0.12)');
-  glow.addColorStop(1, 'rgba(90,150,255,0)');
-  ctx.fillStyle = glow;
-  ctx.beginPath();
-  ctx.arc(g.cx, g.cy, g.r * 1.22, 0, Math.PI * 2);
-  ctx.fill();
-  const img = globe.render(app.tex);
-  if (!state.globeImage || state.globeImage.width !== img.width) state.globeImage = new ImageData(img.data, img.width, img.height);
-  globeCtx.putImageData(state.globeImage, 0, 0);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(globeCanvas, g.cx - g.r, g.cy - g.r, g.r * 2, g.r * 2);
-  // Lebewesen als Lichtpunkte, wenn der Globus groß genug ist
-  if (g.r > 110) drawGroupsGlobe(g);
-}
-
-function groupStyle(i, life, hl) {
-  const sp = life.sp[i];
-  const hue = life.genes[i * NG + 8];
-  const [r, gg, b] = speciesRgb(hue);
-  const dim = hl && sp !== hl;
-  return { r, g: gg, b, dim };
-}
-
-function drawGroupsGlobe(g) {
-  const life = app.world.life;
-  const hl = state.highlight;
-  const size = Math.max(1.2, Math.min(2.6, g.r / 120));
-  for (let i = 0; i < life.n; i++) {
-    const p = app.globe.project(life.x[i], life.y[i]);
-    if (!p) continue;
-    const st = groupStyle(i, life, hl);
-    const a = (0.35 + 0.65 * p[2]) * (st.dim ? 0.18 : 1);
-    ctx.fillStyle = `rgba(${st.r},${st.g},${st.b},${a})`;
-    const s = hl && !st.dim ? size * 1.8 : size;
-    ctx.fillRect(g.cx + p[0] * g.r - s / 2, g.cy - p[1] * g.r - s / 2, s, s);
-  }
-}
-
-function drawMap() {
-  const { w, h } = state;
-  app.map.draw(ctx, texCanvas, w, h);
-  const life = app.world.life;
-  const z = app.map.zoom;
-  const hl = state.highlight;
-  const base = Math.max(1.4, Math.min(5.5, z * 0.22));
-  const round = z > 9;
-  for (let i = 0; i < life.n; i++) {
-    const [sx, sy] = app.map.toScreen(life.x[i], life.y[i], w, h);
-    if (sx < -6 || sx > w + 6 || sy < -6 || sy > h + 6) continue;
-    const st = groupStyle(i, life, hl);
-    const s = base * (0.7 + 0.6 * life.genes[i * NG + SIZE]) * (hl && !st.dim ? 1.5 : 1);
-    if (round) {
-      ctx.fillStyle = 'rgba(5,9,19,0.55)';
-      ctx.beginPath();
-      ctx.arc(sx, sy, s * 0.62 + 1, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = `rgba(${st.r},${st.g},${st.b},${st.dim ? 0.18 : 0.95})`;
-      ctx.beginPath();
-      ctx.arc(sx, sy, s * 0.62, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.fillStyle = `rgba(${st.r},${st.g},${st.b},${st.dim ? 0.18 : 0.95})`;
-      ctx.fillRect(sx - s / 2, sy - s / 2, s, s);
-    }
-  }
-}
-
-function drawEffects(now) {
-  state.effects = state.effects.filter((e) => now - e.t0 < 2200);
-  for (const e of state.effects) {
-    const p = worldToScreen(e.x, e.y);
-    if (!p) continue;
-    const t = (now - e.t0) / 2200;
-    const scale = state.view === 'map' ? app.map.zoom : globeGeom().r * ((Math.PI * 2) / W);
-    if (e.kind === 'impact') {
-      const r0 = [2, 4.5, 9][e.size - 1] * scale;
-      if (t < 0.12) {
-        ctx.fillStyle = `rgba(255,240,210,${0.9 * (1 - t / 0.12)})`;
-        ctx.beginPath();
-        ctx.arc(p[0], p[1], r0 * 0.8, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.strokeStyle = `rgba(255,140,90,${0.9 * (1 - t)})`;
-      ctx.lineWidth = 2.5 * (1 - t) + 0.5;
-      ctx.beginPath();
-      ctx.arc(p[0], p[1], r0 * (0.6 + t * 2.2), 0, Math.PI * 2);
-      ctx.stroke();
-    } else {
-      ctx.strokeStyle = `rgba(${e.color},${0.85 * (1 - t)})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(p[0], p[1], 7 * scale * (0.3 + t), 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  }
-}
-
-function drawSelection(now) {
-  const sel = state.selected;
-  if (!sel || !sheets.isOpen()) return;
-  let x;
-  let y;
-  if (sel.kind === 'zelle') {
-    x = Math.floor(sel.x) + 0.5;
-    y = Math.floor(sel.y) + 0.5;
-  } else {
-    const life = app.world.life;
-    let i = -1;
-    for (let k = 0; k < life.n; k++) {
-      if (life.uid[k] === sel.uid) {
-        i = k;
-        break;
-      }
-    }
-    if (i < 0) return;
-    x = life.x[i];
-    y = life.y[i];
-  }
-  const p = worldToScreen(x, y);
-  if (!p) return;
-  const pulse = 0.5 + 0.5 * Math.sin(now / 260);
-  ctx.strokeStyle = `rgba(245,198,106,${0.55 + 0.4 * pulse})`;
-  ctx.lineWidth = 1.6;
-  ctx.beginPath();
-  ctx.arc(p[0], p[1], 9 + 2 * pulse, 0, Math.PI * 2);
-  ctx.stroke();
-}
-
-// ---------------------------------------------------------------- Kamera
+// ---------------------------------------------------------------- Kamera-Aktionen
 
 app.flyTo = (x, y) => {
-  if (state.view === 'globe') {
-    app.globe.lookAt(x, y);
-    app.globe.tilt *= 0.8;
-    state.spin = false;
-  } else {
-    app.map.x = x;
-    app.map.y = y;
-    app.map.zoom = Math.max(app.map.zoom, 8);
-    app.map.clamp(state.h);
-  }
-  state.effects.push({ kind: 'ring', x, y, t0: performance.now(), color: '245,198,106' });
+  const now = performance.now();
+  cam.touch(now);
+  cam.flyTo(x, y, now, cam.view === 'map' ? Math.max(cam.zoom, 8) : 0);
+  fx.add({ kind: 'ring', x, y, t0: now, color: '245,198,106' });
 };
 
+// Ganz nah heran: Karte in Nahansicht (instant für Tests)
+app.zoomTo = (x, y, ppc = 52, instant = false) => {
+  const now = performance.now();
+  cam.touch(now);
+  if (cam.view !== 'map') switchView('map', cam.center());
+  if (instant) {
+    cam.mx = x;
+    cam.my = y;
+    cam.zoom = ppc;
+    cam.clampMap();
+    state.fade = null;
+  } else cam.flyTo(x, y, now, ppc, 1100);
+};
+
+// Eine Art markieren und zu einer ihrer Gruppen fliegen
 app.highlight = (id) => {
   state.highlight = id;
   if (id) {
-    const sp = app.world.species.get(id);
-    if (sp) app.flyTo(sp.x, sp.y);
+    const sp = client.species.get(id);
+    const f = client.frame;
+    let best = -1;
+    let bd = Infinity;
+    if (f && sp) {
+      for (let i = 0; i < f.n; i++) {
+        if (f.sp[i] !== id) continue;
+        let dx = Math.abs(f.x[i] - sp.x);
+        if (dx > W / 2) dx = W - dx;
+        const d = dx * dx + (f.y[i] - sp.y) ** 2;
+        if (d < bd) {
+          bd = d;
+          best = i;
+        }
+      }
+    }
+    if (best >= 0) app.zoomTo(f.x[best], f.y[best], 30);
+    else if (sp) app.flyTo(sp.x, sp.y);
   }
   renderContext();
 };
@@ -835,13 +751,25 @@ app.onSheetClosed = () => {
 
 app.lastSavedText = () => (state.savedAt ? `zuletzt ${F.year(state.savedAt)}` : '');
 
+// Klima-Regler: während des Ziehens höchstens zehnmal pro Sekunde senden
+const paramTimers = {};
+app.setParam = (kind, v, final) => {
+  clearTimeout(paramTimers[kind]);
+  const send = () => {
+    paramTimers[kind] = null;
+    client.act(kind, { v });
+    if (final) client.act('log', { kind });
+  };
+  if (final) send();
+  else paramTimers[kind] = setTimeout(send, 100);
+};
+
 app.action = (act, v) => {
   if (act === 'jump') {
     sheets.close();
     timeJump(Number(v));
   } else if (act === 'save') {
-    saveNow(true);
-    sheets.render();
+    saveNow(true).then(() => sheets.render());
   } else if (act === 'new') {
     sheets.open('confirm', {
       title: 'Neue Welt erschaffen?',
@@ -855,79 +783,59 @@ app.action = (act, v) => {
   } else if (act === 'about') sheets.open('about');
 };
 
-function backToStart() {
-  state.started = false;
-  state.speed = 0;
-  $('hud').hidden = true;
-  $('dock').hidden = true;
-  $('context').hidden = true;
-  startEl.hidden = false;
-  $('start-continue').innerHTML = '';
-  seedInput.value = randomSeed();
-  state.globeZoom = 1;
-  state.view = 'globe';
-  setupGlobe();
-  schedulePreview();
-}
-
 // ---------------------------------------------------------------- Zeitsprung
 
 function timeJump(years) {
-  const w = app.world;
-  state.busy = { target: w.tick + years * 12, start: w.tick, stop: false };
+  if (state.busy) return;
+  state.busy = true;
+  toastQueue.length = 0;
+  $('busy-fill').style.width = '0%';
+  $('busy-title').textContent = 'Zeitsprung';
   $('busy').hidden = false;
+  client.send('jump', { years });
 }
 
-$('busy-stop').addEventListener('click', () => {
-  if (state.busy) state.busy.stop = true;
+$('busy-stop').addEventListener('click', () => client.send('stop-jump'));
+
+client.on('jump', (m) => {
+  $('busy-fill').style.width = `${Math.round((m.done / Math.max(1, m.total)) * 100)}%`;
+  $('busy-title').textContent = `Zeitsprung: ${F.year(m.tick)}`;
 });
 
-function runBusy() {
-  const b = state.busy;
-  if (!b) return;
-  const w = app.world;
-  const t0 = performance.now();
-  while (w.tick < b.target && !b.stop && performance.now() - t0 < 40) w.stepMonth();
-  const f = (w.tick - b.start) / (b.target - b.start);
-  $('busy-fill').style.width = `${Math.round(f * 100)}%`;
-  $('busy-title').textContent = `Zeitsprung: ${F.year(w.tick)}`;
-  if (w.tick >= b.target || b.stop) {
-    state.busy = null;
-    $('busy').hidden = true;
-    state.texKey = '';
-    const fresh = w.chronicle.takeFresh().filter((e) => e.important);
-    toastQueue.length = 0;
-    const years = Math.round((w.tick - b.start) / 12);
-    const more = fresh.length ? ` ${fresh.length === 1 ? 'Ein wichtiges Ereignis steht' : `${fresh.length} wichtige Ereignisse stehen`} in der Chronik.` : '';
-    toast({ kind: 'welt', text: `${F.num(years)} Jahre vergangen.${more}`, t: w.tick });
-    saveNow();
-  }
-}
+client.on('jump-done', (m) => {
+  state.busy = false;
+  $('busy').hidden = true;
+  toastQueue.length = 0;
+  const more = m.important ? ` ${m.important === 1 ? 'Ein wichtiges Ereignis steht' : `${m.important} wichtige Ereignisse stehen`} in der Chronik.` : '';
+  toast({ kind: 'welt', text: `${F.num(m.years)} Jahre vergangen.${more}`, t: m.tick });
+  state.savedAt = m.tick;
+});
 
 // ---------------------------------------------------------------- Speichern
 
 let saving = false;
 async function saveNow(manual = false) {
-  const w = app.world;
-  if (!w || saving || !state.started) return;
+  if (!state.started || saving) return false;
   saving = true;
   try {
-    await store.save(w.serialize());
-    state.lastSave = performance.now();
-    state.savedAt = w.tick;
-    if (manual) toast({ kind: 'welt', text: 'Gespeichert.', t: w.tick });
-  } catch (e) {
-    console.warn('Speichern fehlgeschlagen', e);
-    if (manual) toast({ kind: 'tod', text: 'Speichern hat nicht geklappt.', t: w.tick });
+    const tick = await client.request('save');
+    const ok = tick !== false && tick !== null && tick !== undefined;
+    if (ok) state.savedAt = tick;
+    if (manual) toast({ kind: ok ? 'welt' : 'tod', text: ok ? 'Gespeichert.' : 'Speichern hat nicht geklappt.', t: client.frame ? client.frame.tick : 0 });
+    return ok;
   } finally {
     saving = false;
   }
 }
 
+client.on('saved', (m) => {
+  state.savedAt = m.tick;
+});
+
 native.onPause(() => saveNow());
 native.onBack(() => {
   if (state.busy) {
-    state.busy.stop = true;
+    client.send('stop-jump');
     return true;
   }
   if (sheets.isOpen()) return sheets.close();
@@ -937,8 +845,8 @@ native.onBack(() => {
     renderContext();
     return true;
   }
-  if (state.started && state.view === 'map') {
-    setView('globe');
+  if (state.started && cam.view === 'map') {
+    switchView('globe');
     return true;
   }
   saveNow();
@@ -947,74 +855,132 @@ native.onBack(() => {
 
 // ---------------------------------------------------------------- Schleife
 
+const perf = { frames: 0, at: 0, fps: 0, good: 0 };
+
+function trackPerf(now) {
+  perf.frames++;
+  if (!perf.at) perf.at = now;
+  if (now - perf.at < 1000) return;
+  perf.fps = (perf.frames * 1000) / (now - perf.at);
+  perf.frames = 0;
+  perf.at = now;
+  if (document.hidden) return;
+  // Auflösung an die Leistung des Geräts anpassen
+  if (perf.fps < 40 && state.quality > 0.55) {
+    state.quality = Math.max(0.55, Math.round((state.quality - 0.15) * 100) / 100);
+    perf.good = 0;
+    resize();
+  } else if (perf.fps > 57 && state.quality < 1) {
+    if (++perf.good >= 4) {
+      state.quality = Math.min(1, Math.round((state.quality + 0.1) * 100) / 100);
+      perf.good = 0;
+      resize();
+    }
+  } else perf.good = 0;
+}
+
 let last = performance.now();
 let sheetAt = 0;
-function frame(now) {
-  const dt = Math.min(0.1, (now - last) / 1000);
+function loop(now) {
+  const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
   last = now;
   try {
-    if (state.busy) runBusy();
-    else simulate(dt);
-    if (app.world) {
-      if (state.view === 'globe' && (state.spin || !state.started) && pointers.size === 0) app.globe.lon += dt * (state.started ? 0.05 : 0.09);
-      if (pointers.size === 0 && !state.spin && state.view === 'globe' && performance.now() - lastTouch > 6000) state.spin = true;
-      refreshTexture(now);
-      draw(now);
-      if (state.started) {
-        updateHud();
-        pumpToasts();
-        if (now - sheetAt > 700) {
-          sheetAt = now;
-          if (state.speed > 0) sheets.refresh();
-        }
-        if (now - state.lastSave > 60000 && state.speed > 0) saveNow();
+    syncData(now);
+    cam.update(dt, now);
+    render(now);
+    if (state.started) {
+      updateHud(now);
+      pumpToasts(now);
+      if (now - sheetAt > 700) {
+        sheetAt = now;
+        if (state.speed > 0 && !state.busy) sheets.refresh();
       }
     }
+    trackPerf(now);
   } catch (e) {
     console.error('EMERGENZ_FEHLER', e && e.stack ? e.stack : e);
   }
-  requestAnimationFrame(frame);
+  requestAnimationFrame(loop);
 }
-
-let lastTouch = 0;
-canvas.addEventListener('pointerdown', () => {
-  lastTouch = performance.now();
-});
 
 const sheets = createSheets(app);
 
 window.addEventListener('resize', resize);
 
 async function boot() {
+  if (renderer) {
+    bindInput(canvas);
+    watchContext(canvas);
+  } else await useFallback('kein WebGL2');
   resize();
   native.setupBars();
-  const saved = await store.load();
-  initStart(saved && saved.v ? saved : null);
-  requestAnimationFrame(frame);
-  console.log('EMERGENZ_BEREIT');
+  initStart();
+  requestAnimationFrame(loop);
+  const saved = await client.request('check-save');
+  if (saved && state.phase === 'start') showContinue(saved);
+  console.log('EMERGENZ_BEREIT', renderer ? 'webgl2' : '2d');
 }
 
 // Zugriff für automatische Tests
 window.__emergenz = {
   app,
   state,
-  setSpeed,
-  setView,
-  openSheet: (k, a) => sheets.open(k, a),
-  closeSheet: () => sheets.close(),
-  tapAt: tap,
-  setLayer: (l) => {
-    state.layer = l;
-    state.texKey = '';
-    renderContext();
+  cam,
+  client,
+  info: () => {
+    const f = client.frame;
+    return {
+      tick: f ? f.tick : -1,
+      groups: f ? f.n : 0,
+      species: f ? f.stats.species : 0,
+      T: f ? f.stats.T : 0,
+      view: cam.view,
+      pxPerCell: cam.pxPerCell(),
+      lifeMode: life.mode,
+      instances: life.count,
+      sprites: life.slotOf.size,
+      fps: perf.fps,
+      quality: state.quality,
+      gl: !!renderer,
+      chronicle: client.chronicleCount,
+      params: f ? f.params : null,
+    };
   },
+  setSpeed,
+  setView: (v) => switchView(v),
+  setLayer,
   setTool: (t) => {
     state.tool = t;
     renderDock();
     renderContext();
   },
-  step: (months) => app.world && app.world.step(months),
+  openSheet: (k, a) => sheets.open(k, a),
+  closeSheet: () => sheets.close(),
+  tapAt: tap,
+  step: (months) => client.act('step', { months }),
   save: () => saveNow(),
+  query: (what, args) => client.query(what, args),
+  act: (kind, args) => client.act(kind, args),
+  flyTo: (x, y) => app.flyTo(x, y),
+  zoomTo: (x, y, ppc, instant = true) => app.zoomTo(x, y, ppc, instant),
+  globe: (dist) => {
+    switchView('globe');
+    if (dist) cam.dist = dist;
+    state.fade = null;
+  },
+  // eine Gruppe finden: an Land (land > 0,65) oder im Meer
+  findGroup: (where = 'land') => {
+    const f = client.frame;
+    if (!f) return null;
+    let best = null;
+    for (let i = 0; i < f.n; i++) {
+      const l = f.land[i] / 255;
+      const ok = where === 'land' ? l > 0.65 : where === 'meer' ? l < 0.35 : true;
+      if (!ok) continue;
+      if (!best || f.size[i] > best.size) best = { x: f.x[i], y: f.y[i], uid: f.uid[i], sp: f.sp[i], size: f.size[i] };
+    }
+    return best;
+  },
 };
 
 boot();

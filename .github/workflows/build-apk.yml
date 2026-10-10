@@ -41,7 +41,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p ergebnis
-          node --test tests/sim.test.mjs 2>&1 | tee ergebnis/sim-test.log
+          node --test tests/sim.test.mjs tests/host.test.mjs 2>&1 | tee ergebnis/sim-test.log
 
       - name: Karten zeichnen
         run: |

@@ -16,8 +16,9 @@ Neue Versionen einfach über die alte installieren, die gespeicherte Welt bleibt
 - **Klima:** Einstrahlung nach Breitengrad, Jahreszeit und Achsneigung, Energiebilanz mit Wärmetransport,
   Ozeane als Wärmespeicher, Eis wirft Licht zurück, CO2 hält Wärme. Regen folgt Windgürteln und Gebirgen.
 - **Pflanzen:** wachsen so viel, wie Temperatur und Regen erlauben (Miami-Modell), Algen nach Licht und Nährstoffen.
-- **Leben:** Jeder Punkt ist eine Gruppe von Lebewesen mit Erbgut aus neun Zahlen. Bei jeder Teilung mutiert es.
-  Was überlebt, entscheidet die Umwelt. So entstehen Mehrzeller, Landtiere, Räuber und neue Arten.
+- **Leben:** Die Simulation rechnet mit Gruppen von Lebewesen, jede mit Erbgut aus neun Zahlen. Bei jeder Teilung
+  mutiert es. Was überlebt, entscheidet die Umwelt. So entstehen Mehrzeller, Landtiere, Räuber und neue Arten.
+  Wie ein Tier aussieht, folgt aus seinem Erbgut. Zoomst du heran, siehst du einzelne Tiere.
 - **Chronik:** Die Welt schreibt ihr eigenes Geschichtsbuch.
 
 Mehr zur Idee und zu möglichen nächsten Schritten: [docs/KONZEPT.md](docs/KONZEPT.md).
@@ -28,6 +29,6 @@ Web-App (HTML, CSS, JavaScript ohne Build-Schritt) in [Capacitor](https://capaci
 Jeder Push auf `main` testet die Simulation, testet die Oberfläche im Browser, baut die APK, startet sie im
 Android-Emulator und veröffentlicht sie als Release. Dafür braucht der Build das Secret `KEYSTORE_PASSWORD`.
 
-- Simulation testen: `node --test tests/sim.test.mjs`
+- Simulation testen: `node --test tests/sim.test.mjs tests/host.test.mjs`
 - Im Browser ansehen: `python3 -m http.server 8080 --directory www`
 - Karten als Bilder: `node tools/render-map.mjs 12345 500`

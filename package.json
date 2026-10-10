@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Gott-Simulation: eine Welt, die nur aus Regeln entsteht",
   "scripts": {
-    "test": "node --test tests/sim.test.mjs",
+    "test": "node --test tests/sim.test.mjs tests/host.test.mjs",
     "serve": "python3 -m http.server 8080 --directory www",
     "prepare-web": "node scripts/prepare-web.mjs",
     "karte": "node tools/render-map.mjs"

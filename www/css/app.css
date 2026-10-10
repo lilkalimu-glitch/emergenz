@@ -78,6 +78,16 @@ input:focus-visible {
   display: block;
 }
 
+#fx {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  display: block;
+  z-index: 1;
+}
+
 /* ---------- Kopfzeile ---------- */
 
 #hud {
@@ -575,20 +585,63 @@ input:focus-visible {
 
 .species-row {
   display: grid;
-  grid-template-columns: 12px 1fr auto;
+  grid-template-columns: 44px 1fr auto;
   gap: 12px;
   align-items: center;
-  padding: 11px 0;
+  padding: 8px 0;
   border-bottom: 1px solid var(--line);
   width: 100%;
   text-align: left;
 }
 
 .sp-dot {
-  width: 12px;
-  height: 12px;
+  display: inline-block;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: 1px;
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
+}
+
+/* Bilder der Arten: Hintergrund zeigt den Lebensraum */
+.sp-portrait,
+.hero-portrait {
+  display: block;
+  border-radius: 12px;
+  background: radial-gradient(circle at 50% 40%, rgba(160, 190, 255, 0.1), rgba(160, 190, 255, 0.02) 70%);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.sp-portrait.is-sea,
+.hero-portrait.is-sea {
+  background: radial-gradient(circle at 50% 35%, rgba(70, 150, 210, 0.28), rgba(20, 60, 110, 0.12) 75%);
+}
+
+.sp-portrait.is-coast,
+.hero-portrait.is-coast {
+  background: linear-gradient(to bottom, rgba(120, 160, 110, 0.18) 0 55%, rgba(60, 130, 190, 0.22) 55% 100%);
+}
+
+.sp-portrait.is-land,
+.hero-portrait.is-land {
+  background: radial-gradient(ellipse at 50% 85%, rgba(140, 170, 100, 0.26), rgba(90, 110, 70, 0.08) 70%);
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 14px;
+  align-items: center;
+  margin: 2px 0 6px;
+}
+
+.hero-portrait {
+  border-radius: 18px;
+}
+
+.hero-text {
+  margin: 0;
 }
 
 .sp-name,

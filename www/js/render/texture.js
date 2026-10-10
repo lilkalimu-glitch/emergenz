@@ -66,9 +66,7 @@ export class PlanetTexture {
   ensureStatic() {
     const world = this.world;
     if (this.terrainVersion === world.terrainVersion && this.elevHi) return false;
-    if (!this.baseHi) this.baseHi = detailTerrain(world.planet);
-    const e = this.baseHi.slice();
-    for (const cr of world.craters) this.applyCrater(e, cr);
+    const e = detailTerrain(world.planet, world.base);
     this.elevHi = e;
     // Meer, Relief, Tiefe
     for (let y = 0; y < TH; y++) {

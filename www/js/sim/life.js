@@ -27,6 +27,8 @@ export class Life {
     this.nextId = 1;
     this.x = new Float32Array(cap);
     this.y = new Float32Array(cap);
+    this.px = new Float32Array(cap); // Position beim letzten Bild für die Anzeige (für flüssige Bewegung)
+    this.py = new Float32Array(cap);
     this.B = new Float32Array(cap);
     this.age = new Float32Array(cap);
     this.sp = new Int32Array(cap);
@@ -79,6 +81,8 @@ export class Life {
     const i = this.n++;
     this.x[i] = x;
     this.y[i] = clamp(y, 0.3, H - 0.3);
+    this.px[i] = this.x[i];
+    this.py[i] = this.y[i];
     this.B[i] = B;
     this.age[i] = 0;
     this.sp[i] = spId;
@@ -115,6 +119,8 @@ export class Life {
   move(from, to) {
     this.x[to] = this.x[from];
     this.y[to] = this.y[from];
+    this.px[to] = this.px[from];
+    this.py[to] = this.py[from];
     this.B[to] = this.B[from];
     this.age[to] = this.age[from];
     this.sp[to] = this.sp[from];
@@ -438,6 +444,8 @@ export class Life {
     this.nextId = d.nextId;
     this.x.set(d.x.subarray(0, this.n));
     this.y.set(d.y.subarray(0, this.n));
+    this.px.set(d.x.subarray(0, this.n));
+    this.py.set(d.y.subarray(0, this.n));
     this.B.set(d.B.subarray(0, this.n));
     this.age.set(d.age.subarray(0, this.n));
     this.sp.set(d.sp.subarray(0, this.n));
