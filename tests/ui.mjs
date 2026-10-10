@@ -20,11 +20,13 @@ const logs = [];
 const results = {};
 page.on('console', (m) => {
   logs.push(`[${m.type()}] ${m.text()}`);
-  if (m.type() === 'error') errors.push(`Konsole: ${m.text()}`);
+  // fehlende Dateien meldet die Antwort-Prüfung mit Adresse
+  if (m.type() === 'error' && !m.text().startsWith('Failed to load resource')) errors.push(`Konsole: ${m.text()}`);
 });
 page.on('pageerror', (e) => errors.push(`Seitenfehler: ${e.message}`));
-page.on('requestfailed', (r) => {
-  if (!r.url().includes('/fonts/')) errors.push(`Laden fehlgeschlagen: ${r.url()}`);
+page.on('requestfailed', (r) => errors.push(`Laden fehlgeschlagen: ${r.url()}`));
+page.on('response', (r) => {
+  if (r.status() >= 400 && !r.url().endsWith('/favicon.ico')) errors.push(`HTTP ${r.status()}: ${r.url()}`);
 });
 
 let n = 0;

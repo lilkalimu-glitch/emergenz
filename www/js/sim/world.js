@@ -454,6 +454,9 @@ export class World {
   }
 
   logParam(kind) {
+    const key = kind === 'sun' ? `sun${this.params.sun}` : `co2${this.params.co2}`;
+    if (this.state.lastParam === key) return;
+    this.state.lastParam = key;
     if (kind === 'sun') {
       this.chronicle.add('gott', `Die Sonne leuchtet jetzt mit ${Math.round(this.params.sun * 100)} % ihrer Kraft`, null, true);
     } else {

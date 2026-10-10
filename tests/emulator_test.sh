@@ -30,10 +30,28 @@ wait_log() {
   fail "nicht im Log gefunden: $needle"
 }
 
-tap_text() {
-  local text="$1"
+dump_ui() {
   adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1
   adb pull /sdcard/ui.xml "$OUT/ui.xml" > /dev/null 2>&1
+}
+
+# Systemdialoge wie "Pixel Launcher isn't responding" wegtippen (langsamer Emulator)
+dismiss_dialogs() {
+  for _ in 1 2 3; do
+    dump_ui
+    if grep -qE "isn.t responding|reagiert nicht" "$OUT/ui.xml" 2>/dev/null; then
+      echo "  Systemdialog gefunden, tippe auf Warten"
+      tap_text "Wait" || tap_text "Warten" || adb shell input keyevent KEYCODE_ESCAPE
+      sleep 2
+    else
+      return 0
+    fi
+  done
+}
+
+tap_text() {
+  local text="$1"
+  dump_ui
   local b
   b=$(tr '>' '\n' < "$OUT/ui.xml" | grep -E "(text|content-desc)=\"$text\"" | grep -o 'bounds="\[[0-9]*,[0-9]*\]\[[0-9]*,[0-9]*\]"' | head -n 1)
   if [ -z "$b" ]; then
@@ -53,6 +71,11 @@ echo "== Gerät"
 adb shell getprop ro.build.version.release
 adb shell wm size
 
+echo "== Gerät zur Ruhe kommen lassen"
+sleep 25
+adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS > /dev/null 2>&1 || true
+dismiss_dialogs
+
 echo "== Installieren: $APK"
 adb install -r "$APK" || fail "Installation fehlgeschlagen"
 adb logcat -c
@@ -65,6 +88,7 @@ sleep 3
 adb exec-out screencap -p > "$OUT/1-start.png"
 
 echo "== Welt erschaffen"
+dismiss_dialogs
 if ! tap_text "Welt erschaffen"; then
   size=$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -n 1)
   w=${size%x*}

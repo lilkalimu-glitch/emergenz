@@ -81,12 +81,13 @@ jobs:
       - name: Pakete installieren
         run: |
           npm install --no-audit --no-fund --ignore-scripts
-          npm install --no-save --no-audit --no-fund --ignore-scripts @fontsource/fraunces @fontsource/instrument-sans || echo "::warning title=Schriften::Schriften ließen sich nicht laden, Ersatzschriften werden benutzt."
           npm install --no-save --no-audit --no-fund --ignore-scripts playwright@1
           npx playwright install --with-deps chromium
 
       - name: Web-Teil vorbereiten
-        run: node scripts/prepare-web.mjs
+        run: |
+          mkdir -p ergebnis
+          node scripts/prepare-web.mjs 2>&1 | tee ergebnis/prepare-web.log
 
       - name: Im Handyformat testen
         run: |
@@ -95,6 +96,14 @@ jobs:
           python3 -m http.server 8080 --directory www > /dev/null 2>&1 &
           sleep 1
           node tests/ui.mjs ergebnis 2>&1 | tee ergebnis/web-test.log
+
+      - name: Fehler melden
+        if: failure()
+        run: |
+          if [ -f ergebnis/web-test.log ]; then
+            msg=$(grep -v '^\s*$' ergebnis/web-test.log | tail -n 30 | cut -c1-220 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=web-test::$msg"
+          fi
 
       - name: Ergebnis sichern
         if: always()
@@ -134,10 +143,11 @@ jobs:
           mkdir -p ergebnis
           # Ohne Install-Skripte der Pakete (Schutz vor manipulierten npm-Paketen), Capacitor braucht keine.
           npm install --no-audit --no-fund --ignore-scripts 2>&1 | tee ergebnis/npm.log
-          npm install --no-save --no-audit --no-fund --ignore-scripts @fontsource/fraunces @fontsource/instrument-sans 2>&1 | tee -a ergebnis/npm.log || echo "::warning title=Schriften::Schriften fehlen, Ersatzschriften werden benutzt."
 
       - name: Web-Teil vorbereiten
-        run: node scripts/prepare-web.mjs
+        run: |
+          set -o pipefail
+          node scripts/prepare-web.mjs 2>&1 | tee ergebnis/prepare-web.log
 
       - name: Android-Projekt erzeugen
         run: |

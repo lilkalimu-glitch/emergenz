@@ -51,7 +51,7 @@ export class Globe {
         const rim = Math.pow(1 - z, 2.4);
         haze.push(rim * (0.15 + 0.85 * dayS));
         const rv = 2 * d * z - SUN[2];
-        spec.push(d > 0 ? Math.pow(Math.max(0, rv), 28) * 0.55 : 0);
+        spec.push(d > 0 ? Math.pow(Math.max(0, rv), 46) * 0.32 : 0);
       }
     }
     this.n = idx.length;

@@ -235,7 +235,7 @@ export function createSheets(app) {
       ['Größe', s, formatMass(bodyMassKg(s))],
       ['Fleisch', g[o + DIET], `${Math.round(g[o + DIET] * 100)} %`],
       ['Land', g[o + LAND], g[o + LAND] < 0.35 ? 'Meer' : g[o + LAND] < 0.65 ? 'beides' : 'Land'],
-      ['Wohlfühltemperatur', g[o + TOPT], `${Math.round(topt(g[o + TOPT]))} °C`],
+      ['Wärme', g[o + TOPT], `${Math.round(topt(g[o + TOPT]))} °C`],
       ['Toleranz', g[o + TTOL], `± ${Math.round(sigma(g[o + TTOL]))} °C`],
       ['Tempo', g[o + SPEED], `${Math.round(g[o + SPEED] * 100)}`],
       ['Sinne', g[o + SENSE], `${Math.round(g[o + SENSE] * 100)}`],

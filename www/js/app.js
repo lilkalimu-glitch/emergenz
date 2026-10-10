@@ -277,7 +277,7 @@ function updateHud(force = false) {
   if (!w) return;
   $('hud-year').textContent = F.year(w.tick);
   const s = w.species.alive().length;
-  $('hud-stats').innerHTML = `<span class="t">${icon('thermo')}${F.temp(w.climate.globalT)}</span><span class="s">${icon('leaf')}${F.num(s)} ${s === 1 ? 'Art' : 'Arten'}</span><span>${icon('dots')}${F.num(w.life.n)}</span>`;
+  $('hud-stats').innerHTML = `<span class="t">${icon('thermo')}${F.temp(w.climate.globalT)}</span><span class="s">${icon('leaf')}${F.num(s)} ${s === 1 ? 'Art' : 'Arten'}</span>`;
   let rate = '';
   if (state.speed > 0 && !state.busy) {
     const y = state.rate;
@@ -584,13 +584,16 @@ function pumpToasts() {
   const w = app.world;
   if (w && state.started) {
     for (const e of w.chronicle.takeFresh()) {
-      if (e.important || e.kind === 'gott' || e.kind === 'klima') toast(e);
+      if (!(e.important || e.kind === 'gott' || e.kind === 'klima')) continue;
+      toast(e);
     }
   }
-  while (toastQueue.length > 4) toastQueue.shift();
-  if (!toastQueue.length || toastEl.children.length >= 2) return;
+  // Alte Meldungen verwerfen: Was vor Jahrzehnten geschah, steht in der Chronik
+  while (toastQueue.length && w && w.tick - toastQueue[0].t > 12 * 12 && toastQueue[0].kind !== 'gott') toastQueue.shift();
+  while (toastQueue.length > 3) toastQueue.shift();
+  if (!toastQueue.length || toastEl.children.length >= 1) return;
   const now = performance.now();
-  if (now - toastShown < 700) return;
+  if (now - toastShown < 500) return;
   toastShown = now;
   const e = toastQueue.shift();
   const div = document.createElement('div');
@@ -603,7 +606,7 @@ function pumpToasts() {
   setTimeout(() => {
     div.classList.add('is-out');
     setTimeout(() => div.remove(), 450);
-  }, 4200);
+  }, 3800);
 }
 
 // ---------------------------------------------------------------- Simulation
@@ -892,6 +895,11 @@ function runBusy() {
     state.busy = null;
     $('busy').hidden = true;
     state.texKey = '';
+    const fresh = w.chronicle.takeFresh().filter((e) => e.important);
+    toastQueue.length = 0;
+    const years = Math.round((w.tick - b.start) / 12);
+    const more = fresh.length ? ` ${fresh.length === 1 ? 'Ein wichtiges Ereignis steht' : `${fresh.length} wichtige Ereignisse stehen`} in der Chronik.` : '';
+    toast({ kind: 'welt', text: `${F.num(years)} Jahre vergangen.${more}`, t: w.tick });
     saveNow();
   }
 }

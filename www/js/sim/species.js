@@ -191,7 +191,7 @@ export class Species {
     for (const s of this.list) {
       if (s.died < 0 && s.count === 0 && s.born < world.tick) {
         s.died = world.tick;
-        if (s.peak >= 120 || (s.announced && s.peak >= 60)) {
+        if (s.peak >= 220 || (s.announced && s.peak >= 90)) {
           const years = Math.max(1, Math.round((s.died - s.born) / 12));
           world.chronicle.add('tod', `§${s.name}§ ist ausgestorben (nach ${years.toLocaleString('de-DE')} Jahren)`, [s.x, s.y], s.peak >= 300);
         }
